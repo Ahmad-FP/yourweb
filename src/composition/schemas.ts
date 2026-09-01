@@ -190,6 +190,7 @@ export const configurationSchema = {
     version: { type: "integer", minimum: 1 },
     capabilityVersion: { const: 1 },
     presetBase: { enum: ["minimal", "dense"] },
+    presetRevision: { type: "integer", minimum: 1 },
     surfaces: { type: "array", minItems: 1, maxItems: LIMITS.surfaces, items: { $ref: "#/$defs/surface" } },
     collections: { type: "array", maxItems: LIMITS.collections, items: { $ref: "#/$defs/collection" } },
   },

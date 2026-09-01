@@ -1,6 +1,7 @@
 import {
   Activity,
   CalendarDays,
+  Check,
   ChevronRight,
   Heart,
   Import,
@@ -32,6 +33,7 @@ export const surfaceIcons: Record<string, LucideIcon> = {
 export {
   Activity,
   CalendarDays,
+  Check,
   ChevronRight,
   Heart,
   Import,

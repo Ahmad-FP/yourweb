@@ -148,6 +148,8 @@ export interface UIConfiguration {
   version: number;
   capabilityVersion: 1;
   presetBase: "minimal" | "dense";
+  /** Revision of the shipped preset this was forked from; drives content refresh on load. */
+  presetRevision?: number;
   surfaces: SurfaceDefinition[];
   collections: CustomCollectionSchema[];
 }

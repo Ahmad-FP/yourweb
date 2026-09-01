@@ -1,7 +1,7 @@
 import { mealById, meals } from "../catalog/meals";
 import { LIMITS } from "../composition/limits";
 import { consumeConfigurationPreview } from "../composition/operations";
-import { createPresetFork, presets } from "../composition/presets";
+import { PRESET_REVISION, createPresetFork, presets, refreshPresetContent } from "../composition/presets";
 import type { ActivityEntry, ConfigurationHistoryEntry, CustomCollectionSchema, CustomRecord, Scalar, UIConfiguration } from "../composition/types";
 import { validateConfiguration } from "../composition/validate";
 import { deriveGroceryList, updateMealPlan, type PlanUpdateResult } from "../domain/mealPlan";
@@ -140,8 +140,22 @@ export class YourWebStore {
       const loaded = await loadSnapshot();
       const validation = validateConfiguration(loaded.configuration);
       if (validation.ok) {
-        const validSurface = validation.value.surfaces.some((surface) => surface.id === loaded.activeSurfaceId);
-        this.state = runtimeFromSnapshot({ ...loaded, configuration: validation.value, activeSurfaceId: validSurface ? loaded.activeSurfaceId : validation.value.surfaces[0]!.id }, "indexeddb");
+        const stale = validation.value.presetRevision !== PRESET_REVISION;
+        const configuration = stale
+          ? { ...refreshPresetContent(validation.value), version: validation.value.version + 1 }
+          : validation.value;
+        const validSurface = configuration.surfaces.some((surface) => surface.id === loaded.activeSurfaceId);
+        const snapshot = {
+          ...loaded,
+          configuration,
+          activeSurfaceId: validSurface ? loaded.activeSurfaceId : configuration.surfaces[0]!.id,
+          history: stale ? [...loaded.history, historyEntry(validation.value, "system", "Before applying updated built-in layouts")] : loaded.history,
+          activity: stale
+            ? [...loaded.activity, activity("system", "Built-in layouts updated", "The shipped Meals and Week screens were refreshed. Your plan, saved entries and any assistant-created screens were kept.")]
+            : loaded.activity,
+        };
+        this.state = runtimeFromSnapshot(snapshot, "indexeddb");
+        if (stale) await persistSnapshot(snapshot);
       } else {
         const fallback = createInitialSnapshot();
         fallback.customRecords = loaded.customRecords;

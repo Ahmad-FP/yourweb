@@ -51,7 +51,16 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible {
   outline: 3px solid var(--yellow);
-  outline-offset: 3px;
+  outline-offset: 2px;
+}
+
+/* a focused control must paint its ring above its neighbours, not behind them */
+input:focus-visible,
+select:focus-visible,
+.plan-cell:focus-visible,
+.servings-stepper button:focus-visible {
+  position: relative;
+  z-index: 3;
 }
 
 ::selection {
@@ -644,25 +653,66 @@ button.dense-row:hover { background: #f5ecde; }
 .nutrition-band span:last-child { border-right: 0; }
 .nutrition-band b { display: block; color: var(--ink); font-size: 17px; font-weight: 660; }
 
-.plan-form {
-  display: grid;
-  grid-template-columns: 1.1fr repeat(3, minmax(88px, 0.7fr)) auto;
-  gap: 10px;
-  align-items: end;
-  margin: 28px 0 42px;
-  padding: 18px;
-  color: var(--ink);
-  border-radius: 16px;
+.plan-picker {
+  margin: 22px 0 26px;
+  padding: 16px 18px 14px;
+  border-radius: 15px;
   background: var(--coral-soft);
 }
 
-.plan-form > div { display: flex; align-items: center; gap: 9px; align-self: center; }
-.plan-form label,
+.plan-picker > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.plan-picker > header > div:first-child { display: flex; align-items: center; gap: 9px; }
+.plan-picker strong { font-size: 15px; font-weight: 680; }
+
+.servings-stepper { display: flex; align-items: center; gap: 4px; }
+.servings-stepper > span { margin-right: 5px; color: #8a4635; font-size: 10px; font-weight: 720; letter-spacing: 0.05em; text-transform: uppercase; }
+.servings-stepper button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(38, 49, 45, 0.16);
+  border-radius: 8px;
+  background: var(--paper);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+.servings-stepper button:hover:not(:disabled) { background: #fff; }
+.servings-stepper button:disabled { opacity: 0.38; cursor: not-allowed; }
+.servings-stepper b { min-width: 30px; font-variant-numeric: tabular-nums; text-align: center; }
+
+.plan-grid { display: grid; grid-template-columns: 62px repeat(7, minmax(0, 1fr)); gap: 4px; align-items: center; }
+.plan-grid-day { display: grid; justify-items: center; gap: 1px; padding-bottom: 3px; color: var(--muted); line-height: 1; }
+.plan-grid-day b { font-size: 10px; font-weight: 720; letter-spacing: 0.04em; text-transform: uppercase; }
+.plan-grid-day i { color: var(--ink); font-size: 13px; font-style: normal; font-weight: 660; }
+.plan-grid-day.is-today b,
+.plan-grid-day.is-today i { color: #b8402a; }
+.plan-grid-slot { color: #8a4635; font-size: 10px; font-weight: 720; letter-spacing: 0.04em; text-transform: capitalize; }
+
+.plan-cell {
+  display: grid;
+  min-height: 34px;
+  place-items: center;
+  padding: 0;
+  color: #b07a68;
+  border: 1px solid rgba(38, 49, 45, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 252, 246, 0.72);
+  transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+
+.plan-cell:hover { color: var(--forest); border-color: var(--forest); background: #fff; }
+.plan-cell.is-mine { color: #fff; border-color: var(--forest); background: var(--forest); }
+.plan-cell.is-mine:hover { background: #1d332c; }
+.plan-cell.is-taken { background: rgba(255, 252, 246, 0.35); }
+.plan-cell.is-taken i { display: block; width: 7px; height: 7px; border-radius: 50%; background: #c08d7a; }
+.plan-cell.is-taken:hover i { background: var(--forest); }
+
+.plan-status { margin: 11px 0 0; min-height: 17px; color: #8a4635; font-size: 12px; }
+
 .custom-form label { display: grid; gap: 6px; }
-.plan-form label span,
 .custom-form label > span { color: var(--muted); font-size: 10px; font-weight: 720; }
-.plan-form input,
-.plan-form select,
 .custom-form input,
 .custom-form select { width: 100%; min-height: 40px; padding: 8px 10px; color: var(--ink); border: 1px solid var(--line); border-radius: 9px; background: var(--paper); }
 
@@ -817,9 +867,6 @@ button.dense-row:hover { background: #f5ecde; }
   .meal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .activity-panel { left: 214px; width: min(420px, calc(100vw - 238px)); }
   .preview-dock { left: 222px; }
-  .plan-form { grid-template-columns: repeat(3, 1fr); }
-  .plan-form > div,
-  .plan-form > button { grid-column: span 3; }
 }
 
 @media (max-width: 760px) {
@@ -946,12 +993,14 @@ button.dense-row:hover { background: #f5ecde; }
   .grocery-groups { columns: 1; }
 
   .recipe-sheet-panel > .food-image { aspect-ratio: 4 / 3; }
-  .recipe-columns,
-  .nutrition-band,
-  .plan-form { grid-template-columns: 1fr; }
-  .nutrition-band span { display: flex; align-items: baseline; justify-content: space-between; border-right: 0; border-bottom: 1px solid var(--line); }
-  .plan-form > div,
-  .plan-form > button { grid-column: auto; }
+  .recipe-columns { grid-template-columns: 1fr; }
+  .nutrition-band span { padding: 9px 4px; font-size: 9px; text-align: center; }
+  .nutrition-band b { font-size: 14px; }
+  .plan-picker { padding: 14px 12px 12px; }
+  .plan-grid { grid-template-columns: 52px repeat(7, minmax(0, 1fr)); gap: 3px; }
+  .plan-grid-slot { font-size: 9px; }
+  .plan-grid-day i { font-size: 12px; }
+  .plan-cell { min-height: 38px; }
   .discussion article { grid-template-columns: 70px 1fr; }
   .discussion article small { grid-column: 2; }
   .activity-panel { right: 12px; bottom: 80px; left: 12px; width: auto; }

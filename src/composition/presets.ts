@@ -117,11 +117,33 @@ export const presets = {
   dense,
 } as const;
 
+/** Bump whenever shipped preset surfaces change, so saved forks pick the new content up. */
+export const PRESET_REVISION = 2;
+
 export const createPresetFork = (preset: keyof typeof presets): UIConfiguration => {
   const source = structuredClone(presets[preset]);
   return {
     ...source,
     id: `active-${preset}`,
     name: source.name,
+    presetRevision: PRESET_REVISION,
+  };
+};
+
+/**
+ * Rebuild preset-owned surfaces and collections from the shipped definitions while keeping
+ * anything the user or their assistant added. Saved forks otherwise keep old copy forever.
+ */
+export const refreshPresetContent = (configuration: UIConfiguration): UIConfiguration => {
+  const base = presets[configuration.presetBase];
+  if (!base) return { ...configuration, presetRevision: PRESET_REVISION };
+  const shippedSurfaces = new Set(base.surfaces.map((surface) => surface.id));
+  const shippedCollections = new Set(base.collections.map((collection) => collection.id));
+  const source = structuredClone(base);
+  return {
+    ...configuration,
+    presetRevision: PRESET_REVISION,
+    surfaces: [...source.surfaces, ...configuration.surfaces.filter((surface) => !shippedSurfaces.has(surface.id))],
+    collections: [...source.collections, ...configuration.collections.filter((collection) => !shippedCollections.has(collection.id))],
   };
 };

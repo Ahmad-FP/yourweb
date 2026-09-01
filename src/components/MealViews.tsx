@@ -1,10 +1,11 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { Fragment, useMemo, useState, type CSSProperties } from "react";
 import type { DietaryTag, Meal } from "../catalog/types";
 import { mealById, meals } from "../catalog/meals";
 import { appStore } from "../data/store";
 import { searchMeals } from "../domain/mealPlan";
 import type { GroceryItem, PlanEntry } from "../domain/types";
-import { CalendarDays, ChevronRight, Heart, Plus, Search, ShoppingBasket, X } from "./icons";
+import { CalendarDays, Check, ChevronRight, Heart, Plus, Search, ShoppingBasket, X } from "./icons";
+import { useAppState } from "../app/useStore";
 
 const tagLabels: Record<DietaryTag, string> = {
   vegetarian: "Vegetarian",
@@ -24,6 +25,22 @@ const currentDate = () => {
 
 const displayDate = (date: string, options: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric" }) =>
   new Intl.DateTimeFormat("en", options).format(new Date(`${date}T12:00:00`));
+
+const SLOTS = ["breakfast", "lunch", "dinner"] as const;
+type Slot = (typeof SLOTS)[number];
+
+const currentWeekDates = () => {
+  const now = new Date();
+  const weekday = now.getDay() || 7;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - weekday + 1);
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(monday);
+    day.setDate(monday.getDate() + index);
+    const month = String(day.getMonth() + 1).padStart(2, "0");
+    const date = String(day.getDate()).padStart(2, "0");
+    return `${day.getFullYear()}-${month}-${date}`;
+  });
+};
 
 const MealArtwork = ({ meal }: { meal: Meal }) => {
   const shared = <><ellipse className="plate" cx="300" cy="202" rx="224" ry="116" /><ellipse className="plate-rim" cx="300" cy="190" rx="190" ry="86" /></>;
@@ -131,18 +148,7 @@ export function MealMarket({ limit, dense, favorites, onSelect }: { limit?: numb
 }
 
 export function WeekPlanner({ entries, onSelectMeal }: { entries: PlanEntry[]; onSelectMeal: (meal: Meal) => void }) {
-  const days = useMemo(() => {
-    const now = new Date();
-    const weekday = now.getDay() || 7;
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - weekday + 1);
-    return Array.from({ length: 7 }, (_, index) => {
-      const day = new Date(monday);
-      day.setDate(monday.getDate() + index);
-      const month = String(day.getMonth() + 1).padStart(2, "0");
-      const date = String(day.getDate()).padStart(2, "0");
-      return `${day.getFullYear()}-${month}-${date}`;
-    });
-  }, []);
+  const days = useMemo(currentWeekDates, []);
 
   return (
     <div className="week-planner" aria-label="Weekly meal plan">
@@ -192,17 +198,91 @@ export function GroceryList({ items, dense = false }: { items: GroceryItem[]; de
   );
 }
 
-export function RecipeSheet({ meal, onClose }: { meal: Meal; onClose: () => void }) {
-  const [date, setDate] = useState(currentDate());
-  const [slot, setSlot] = useState<"breakfast" | "lunch" | "dinner">(meal.mealType);
+function PlanPicker({ meal }: { meal: Meal }) {
+  const { planEntries } = useAppState();
   const [servings, setServings] = useState(1);
-  const [planned, setPlanned] = useState(false);
+  const [status, setStatus] = useState("");
+  const days = useMemo(currentWeekDates, []);
+  const today = currentDate();
 
-  const addToPlan = async () => {
+  const entryAt = (date: string, slot: Slot) => planEntries.find((entry) => entry.date === date && entry.slot === slot);
+  const step = (delta: number) => setServings((value) => Math.min(12, Math.max(0.5, Math.round((value + delta) * 2) / 2)));
+
+  const toggle = async (date: string, slot: Slot) => {
+    const existing = entryAt(date, slot);
+    const when = `${displayDate(date, { weekday: "long" })} ${slot}`;
+    if (existing?.mealId === meal.id) {
+      const result = await appStore.applyPlanChanges([{ date, slot, mealId: null }], "human");
+      setStatus(result.ok ? `Removed from ${when}.` : "That change could not be applied.");
+      return;
+    }
+    const replaced = existing ? mealById.get(existing.mealId)?.name : undefined;
     const result = await appStore.applyPlanChanges([{ date, slot, mealId: meal.id, servings }], "human");
-    if (result.ok) setPlanned(true);
+    if (!result.ok) {
+      setStatus("That change could not be applied.");
+      return;
+    }
+    setStatus(replaced ? `Replaced ${replaced} on ${when}.` : `Added to ${when}.`);
   };
 
+  const timesPlanned = planEntries.filter((entry) => entry.mealId === meal.id).length;
+
+  return (
+    <section className="plan-picker" aria-label={`Add ${meal.name} to your week`}>
+      <header>
+        <div><CalendarDays size={19} /><strong>Add to your week</strong></div>
+        <div className="servings-stepper">
+          <span id="servings-label">Servings</span>
+          <button type="button" onClick={() => step(-0.5)} aria-label="Fewer servings" disabled={servings <= 0.5}>−</button>
+          <b aria-labelledby="servings-label">{servings}</b>
+          <button type="button" onClick={() => step(0.5)} aria-label="More servings" disabled={servings >= 12}>+</button>
+        </div>
+      </header>
+
+      <div className="plan-grid">
+        <span aria-hidden="true" />
+        {days.map((date) => (
+          <span className={`plan-grid-day ${date === today ? "is-today" : ""}`} key={date}>
+            <b>{displayDate(date, { weekday: "short" })}</b>
+            <i>{displayDate(date, { day: "numeric" })}</i>
+          </span>
+        ))}
+        {SLOTS.map((slot) => (
+          <Fragment key={slot}>
+            <span className="plan-grid-slot">{slot}</span>
+            {days.map((date) => {
+              const entry = entryAt(date, slot);
+              const mine = entry?.mealId === meal.id;
+              const taken = entry && !mine ? mealById.get(entry.mealId) : null;
+              const when = `${displayDate(date, { weekday: "long" })} ${slot}`;
+              return (
+                <button
+                  type="button"
+                  key={date}
+                  className={`plan-cell ${mine ? "is-mine" : ""} ${taken ? "is-taken" : ""}`}
+                  aria-pressed={mine}
+                  title={taken ? `${taken.name} is planned here` : undefined}
+                  aria-label={mine ? `Remove ${meal.name} from ${when}` : taken ? `Replace ${taken.name} with ${meal.name} on ${when}` : `Add ${meal.name} to ${when}`}
+                  onClick={() => void toggle(date, slot)}
+                >
+                  {mine ? <Check size={15} /> : taken ? <i /> : <Plus size={13} />}
+                </button>
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
+
+      <p className="plan-status" role="status">
+        {status || (timesPlanned
+          ? `In your week ${timesPlanned} ${timesPlanned === 1 ? "time" : "times"}. Tap a filled slot to remove it.`
+          : "Tap a slot to add this meal. Tap it again to remove.")}
+      </p>
+    </section>
+  );
+}
+
+export function RecipeSheet({ meal, onClose }: { meal: Meal; onClose: () => void }) {
   return (
     <aside className="recipe-sheet" aria-label={`${meal.name} recipe`}>
       <button type="button" className="sheet-scrim" aria-label="Close recipe" onClick={onClose} />
@@ -214,13 +294,7 @@ export function RecipeSheet({ meal, onClose }: { meal: Meal; onClose: () => void
           <p className="recipe-summary">{meal.summary}</p>
           <div className="nutrition-band"><span><b>{meal.calories}</b> kcal</span><span><b>{meal.protein}g</b> protein</span><span><b>{meal.carbs}g</b> carbs</span><span><b>{meal.fat}g</b> fat</span><span><b>{meal.fiber}g</b> fiber</span></div>
 
-          <form className="plan-form" onSubmit={(event) => { event.preventDefault(); void addToPlan(); }}>
-            <div><CalendarDays size={21} /><strong>{planned ? "Added to your week" : "Add to your week"}</strong></div>
-            <label><span>Date</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
-            <label><span>Slot</span><select value={slot} onChange={(event) => setSlot(event.target.value as typeof slot)}><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option></select></label>
-            <label><span>Servings</span><input type="number" min="0.25" max="12" step="0.25" value={servings} onChange={(event) => setServings(Number(event.target.value))} /></label>
-            <button className="primary-button" type="submit"><Plus size={17} /> {planned ? "Update plan" : "Add to plan"}</button>
-          </form>
+          <PlanPicker meal={meal} />
 
           <div className="recipe-columns">
             <section><h3>Ingredients</h3><ul className="ingredient-list">{meal.ingredients.map((ingredient) => <li key={`${ingredient.name}-${ingredient.unit}`}><span>{ingredient.name}</span><b>{ingredient.quantity} {ingredient.unit}</b></li>)}</ul></section>
