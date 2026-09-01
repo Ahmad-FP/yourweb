@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.wrangler/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+
+.dev.vars*
+!.dev.vars.example
+
+# internal planning and design-tool working documents (not published)
+PLAN.md
+PRODUCT.md
+DESIGN.md
+DEMO.md
+.impeccable/
+
+# superseded captures from earlier design passes (kept locally, not published)
+artifacts/screenshots/redesign-*.jpg
+artifacts/screenshots/type-polish-*.jpg
+artifacts/video/
