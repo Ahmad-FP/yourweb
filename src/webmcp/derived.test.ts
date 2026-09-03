@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { approveConfigurationPreview, clearConfigurationPreviews, createConfigurationPreview } from "../composition/operations";
 import { resetDatabaseForTests } from "../data/db";
 import { YourWebStore } from "../data/store";
-import { demoOperations } from "../test/demoConfiguration";
+import { compositionFixture } from "../test/fixtures";
 import { deriveTools, describeDerivedTools } from "./derived";
 
 const call = async (definition: WebMCP.ModelContextTool, input: Record<string, unknown>) => {
@@ -14,7 +14,7 @@ const call = async (definition: WebMCP.ModelContextTool, input: Record<string, u
 const personalisedStore = async () => {
   const store = new YourWebStore();
   await store.initialize();
-  const preview = createConfigurationPreview(store.getSnapshot().layer, demoOperations, store.getSnapshot().layer.revision);
+  const preview = createConfigurationPreview(store.getSnapshot().layer, compositionFixture, store.getSnapshot().layer.revision);
   if (!preview.ok) throw new Error(preview.message);
   approveConfigurationPreview(preview.preview.id);
   const applied = await store.applyPreview(preview.preview.id, "agent");

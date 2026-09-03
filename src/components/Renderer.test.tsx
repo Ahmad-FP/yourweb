@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { approveConfigurationPreview, clearConfigurationPreviews, createConfigurationPreview } from "../composition/operations";
 import { resetDatabaseForTests } from "../data/db";
 import { appStore } from "../data/store";
-import { demoOperations } from "../test/demoConfiguration";
+import { compositionFixture } from "../test/fixtures";
 import { SurfaceRenderer } from "./Renderer";
 
 let container: HTMLDivElement;
@@ -59,7 +59,7 @@ describe("rendering a personalised surface", () => {
     await appStore.initialize();
 
     const layer = appStore.getSnapshot().layer;
-    const preview = createConfigurationPreview(layer, demoOperations, layer.revision);
+    const preview = createConfigurationPreview(layer, compositionFixture, layer.revision);
     if (!preview.ok) throw new Error(preview.message);
     approveConfigurationPreview(preview.preview.id);
     await appStore.applyPreview(preview.preview.id, "agent");

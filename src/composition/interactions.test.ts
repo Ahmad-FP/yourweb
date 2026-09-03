@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mealById } from "../catalog/meals";
-import { demoOperations } from "../test/demoConfiguration";
+import { compositionFixture } from "../test/fixtures";
 import { createUserLayer, resolveConfiguration } from "./layer";
 import {
   DRAG_MIME,
@@ -15,7 +15,7 @@ import { applyOperations } from "./operations";
 import type { ActionHost } from "./actions";
 
 const personalised = () => {
-  const applied = applyOperations(createUserLayer(), demoOperations);
+  const applied = applyOperations(createUserLayer(), compositionFixture);
   if (!applied.ok) throw new Error(applied.message);
   return resolveConfiguration(applied.layer).configuration;
 };

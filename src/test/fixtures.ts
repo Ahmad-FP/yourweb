@@ -1,12 +1,11 @@
 import type { UIChangeOperation } from "../composition/types";
 
 /**
- * The target configuration the demo drives towards, expressed exactly as an assistant would send
- * it: one atomic batch of bounded operations. Nothing here is HTML, CSS or JavaScript.
- *
- * It is kept in the repository so the recorded demo and the test suite prove the same thing.
+ * A representative personalisation, written exactly as an assistant would send it: one atomic
+ * batch of operations that adds a record type, a screen, a drag source and two interactions, then
+ * hides and reorders part of the base. Shared by the suites that exercise the composition kernel.
  */
-export const demoOperations: UIChangeOperation[] = [
+export const compositionFixture: UIChangeOperation[] = [
   {
     op: "upsert_collection",
     collection: {

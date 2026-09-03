@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { demoOperations } from "../test/demoConfiguration";
+import { compositionFixture } from "../test/fixtures";
 import { createUserLayer } from "./layer";
 import {
   applyOperations,
@@ -13,7 +13,7 @@ import type { UIChangeOperation } from "./types";
 import { validateOperations, validateUserLayer } from "./validate";
 
 /** The demo batch inserts a meal list beside the calendar; bindings below need it in place. */
-const insertPicker = demoOperations.find((operation) => operation.op === "insert_into_slot")!;
+const insertPicker = compositionFixture.find((operation) => operation.op === "insert_into_slot")!;
 
 const previewOf = (operations: UIChangeOperation[], layer = createUserLayer()) =>
   createConfigurationPreview(layer, operations, layer.revision);
@@ -22,7 +22,7 @@ describe("bounded composition grammar", () => {
   beforeEach(clearConfigurationPreviews);
 
   it("accepts the demo target configuration as one atomic batch", () => {
-    const result = previewOf(demoOperations);
+    const result = previewOf(compositionFixture);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.preview.layer.surfaces.map((surface) => surface.id)).toEqual(["today"]);
@@ -32,7 +32,7 @@ describe("bounded composition grammar", () => {
   });
 
   it("requires approval before a preview can be committed", () => {
-    const result = previewOf(demoOperations);
+    const result = previewOf(compositionFixture);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const base = createUserLayer();
@@ -44,7 +44,7 @@ describe("bounded composition grammar", () => {
 
   it("refuses a preview built against a stale revision", () => {
     const layer = createUserLayer();
-    expect(createConfigurationPreview(layer, demoOperations, layer.revision + 5)).toMatchObject({ ok: false, code: "stale_configuration" });
+    expect(createConfigurationPreview(layer, compositionFixture, layer.revision + 5)).toMatchObject({ ok: false, code: "stale_configuration" });
   });
 
   it("fails closed on an unknown component kind", () => {
@@ -117,8 +117,8 @@ describe("bounded composition grammar", () => {
 
   it("refuses a binding whose two halves sit on different screens", () => {
     const result = previewOf([
-      demoOperations[0]!,
-      demoOperations[1]!,
+      compositionFixture[0]!,
+      compositionFixture[1]!,
       {
         op: "bind_interaction",
         interaction: {
@@ -147,8 +147,8 @@ describe("bounded composition grammar", () => {
 
   it("refuses a log_record drop that skips a required field", () => {
     const result = previewOf([
-      demoOperations[0]!,
-      demoOperations[1]!,
+      compositionFixture[0]!,
+      compositionFixture[1]!,
       {
         op: "bind_interaction",
         interaction: {
@@ -175,7 +175,7 @@ describe("bounded composition grammar", () => {
   });
 
   it("archives a record type instead of destroying it, and unbinds what depended on it", () => {
-    const applied = applyOperations(createUserLayer(), demoOperations);
+    const applied = applyOperations(createUserLayer(), compositionFixture);
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
     expect(applyOperations(applied.layer, [{ op: "remove_collection", collectionId: "intake-log" }])).toMatchObject({

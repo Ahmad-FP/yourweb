@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { demoOperations } from "../test/demoConfiguration";
+import { compositionFixture } from "../test/fixtures";
 import { getBase } from "./base";
 import { createUserLayer, resolveConfiguration } from "./layer";
 import { applyOperations } from "./operations";
 import type { BaseDefinition, UIChangeOperation, UserLayer } from "./types";
 import { validateUserLayer } from "./validate";
 
-const personalise = (operations: UIChangeOperation[] = demoOperations, from = createUserLayer()) => {
+const personalise = (operations: UIChangeOperation[] = compositionFixture, from = createUserLayer()) => {
   const result = applyOperations(from, operations);
   if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
   return result.layer;

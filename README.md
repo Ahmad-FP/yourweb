@@ -89,7 +89,7 @@ reversible — which is what makes it safe to grant at all.
 React 19 · TypeScript (strict) · Vite 8 · WebMCP (`webmcp-types`) · IndexedDB via `idb` ·
 Cloudflare Workers · Vitest.
 
-No backend, no database, no model API. 104 KB gzipped. 65 tests, including a real dragstart→drop
+No backend, no database, no model API. 104 KB gzipped. 59 tests, including a real dragstart→drop
 cycle driven through the actual renderer.
 
 ## Run it

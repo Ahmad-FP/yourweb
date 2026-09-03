@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { clearConfigurationPreviews } from "../composition/operations";
 import { resetDatabaseForTests } from "../data/db";
 import { YourWebStore } from "../data/store";
-import { demoOperations } from "../test/demoConfiguration";
+import { compositionFixture } from "../test/fixtures";
 import { createWebMCPToolsForTesting } from "./register";
 
 const execute = async (definition: WebMCP.ModelContextTool, input: Record<string, unknown>) => {
@@ -58,7 +58,7 @@ describe("WebMCP tool contract", () => {
     const store = new YourWebStore();
     await store.initialize();
     const tools = createWebMCPToolsForTesting(store);
-    const staged = await execute(tools.find((tool) => tool.name === "preview_ui_changes")!, { operations: demoOperations });
+    const staged = await execute(tools.find((tool) => tool.name === "preview_ui_changes")!, { operations: compositionFixture });
     expect(staged.ok).toBe(true);
 
     const applied = await execute(tools.find((tool) => tool.name === "apply_ui_preview")!, { previewId: staged.previewId });
@@ -70,7 +70,7 @@ describe("WebMCP tool contract", () => {
     const store = new YourWebStore();
     await store.initialize();
     const tools = createWebMCPToolsForTesting(store);
-    const staged = await execute(tools.find((tool) => tool.name === "preview_ui_changes")!, { operations: demoOperations });
+    const staged = await execute(tools.find((tool) => tool.name === "preview_ui_changes")!, { operations: compositionFixture });
     const { approveConfigurationPreview } = await import("../composition/operations");
     approveConfigurationPreview(String(staged.previewId));
 

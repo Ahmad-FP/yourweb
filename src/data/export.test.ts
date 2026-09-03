@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createUserLayer } from "../composition/layer";
 import { applyOperations } from "../composition/operations";
 import type { UserLayer } from "../composition/types";
-import { demoOperations } from "../test/demoConfiguration";
+import { compositionFixture } from "../test/fixtures";
 import { createExportBundle, validateImportBundle } from "./export";
 import type { AppSnapshot } from "./types";
 
@@ -18,7 +18,7 @@ const snapshotWith = (layer: UserLayer): AppSnapshot => ({
 });
 
 const personalised = () => {
-  const applied = applyOperations(createUserLayer(), demoOperations);
+  const applied = applyOperations(createUserLayer(), compositionFixture);
   if (!applied.ok) throw new Error(applied.message);
   return applied.layer;
 };
