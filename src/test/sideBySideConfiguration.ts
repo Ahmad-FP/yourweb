@@ -199,4 +199,4 @@ export const sideBySideOperations: UIChangeOperation[] = [
   { op: "hide_element", targetId: "week" },
 ];
 
-export const SIDE_BY_SIDE_EXPORT_PATH = "docs/exports/side-by-side.yourweb.json";
+export const SIDE_BY_SIDE_EXPORT_PATH = "artifacts/side-by-side.yourweb.json";

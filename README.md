@@ -10,8 +10,7 @@ interactions — and that version is saved in your browser and still there tomor
 Not a chat panel bolted onto a website. Not the model driving the UI on your behalf, click by click.
 The site itself becomes something an assistant can compose, once, permanently.
 
-**Live:** [yourweb.fpahmad36.workers.dev](https://yourweb.fpahmad36.workers.dev) ·
-**Demo script:** [docs/demo.md](docs/demo.md)
+**Live:** [yourweb.fpahmad36.workers.dev](https://yourweb.fpahmad36.workers.dev)
 
 The demo site is a meal planner — 18 recipes, a week, a grocery list — because you need real data to
 arrange. The meal planner is not the point.
@@ -33,8 +32,10 @@ Approve the preview that appears in the page, tell the assistant to apply it, th
 3. **Ask what tools it has now.** There are more than there were. Your new tracker brought its own.
 4. **Ask it to delete the week screen.** It can't. The developer said so.
 
-In a hurry? [`docs/exports/side-by-side.yourweb.json`](docs/exports/side-by-side.yourweb.json) is a
-finished configuration you can load through Settings → Import JSON to skip to the end state.
+In a hurry? [`artifacts/side-by-side.yourweb.json`](artifacts/side-by-side.yourweb.json) is a
+finished configuration. Load it through Settings → **Import JSON** to jump straight to the end
+state: one screen with the week and the catalogue side by side, and a calorie tracker on the second
+tab. Both built-in screens are hidden rather than deleted, so `show_element` puts them back.
 
 ## What is actually new here
 
