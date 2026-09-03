@@ -1,11 +1,12 @@
-import { Fragment, useMemo, useState, type CSSProperties } from "react";
+import { Fragment, useMemo, useState, type CSSProperties, type DragEvent } from "react";
 import type { DietaryTag, Meal } from "../catalog/types";
 import { mealById, meals } from "../catalog/meals";
 import { appStore } from "../data/store";
 import { searchMeals } from "../domain/mealPlan";
-import type { GroceryItem, PlanEntry } from "../domain/types";
-import { CalendarDays, Check, ChevronRight, Heart, Plus, Search, ShoppingBasket, X } from "./icons";
+import type { GroceryItem, MealSlot, PlanEntry } from "../domain/types";
+import { CalendarDays, Check, ChevronRight, GripVertical, Heart, Plus, Search, ShoppingBasket, X } from "./icons";
 import { useAppState } from "../app/useStore";
+import { useDragBindings } from "./dragContext";
 
 const tagLabels: Record<DietaryTag, string> = {
   vegetarian: "Vegetarian",
@@ -80,16 +81,28 @@ const MealArtwork = ({ meal }: { meal: Meal }) => {
   );
 };
 
-export function MealMarket({ limit, dense, favorites, onSelect }: { limit?: number; dense: boolean; favorites: string[]; onSelect: (meal: Meal) => void }) {
+export function MealMarket({ componentId, limit, dense, favorites, onSelect }: { componentId: string; limit?: number; dense: boolean; favorites: string[]; onSelect: (meal: Meal) => void }) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState<DietaryTag | "all">("all");
+  const { sources, beginDrag, endDrag } = useDragBindings();
+  const draggable = sources.has(componentId);
   const results = useMemo(
     () => searchMeals({ query, dietaryTags: tag === "all" ? undefined : [tag], limit: limit ?? 18 }),
     [limit, query, tag],
   );
 
+  const dragProps = (meal: Meal) =>
+    draggable
+      ? {
+          draggable: true,
+          onDragStart: (event: DragEvent<HTMLElement>) => beginDrag(componentId, meal as unknown as Record<string, unknown>, meal.name, event),
+          onDragEnd: endDrag,
+        }
+      : {};
+
   return (
-    <div className={`market-view ${dense ? "is-dense" : "is-minimal"}`}>
+    <div className={`market-view ${dense ? "is-dense" : "is-minimal"} ${draggable ? "is-draggable" : ""}`}>
+      {draggable ? <p className="drag-hint"><GripVertical size={15} />Drag a meal onto a day in your week. Opening a recipe still works the usual way.</p> : null}
       <div className="market-controls">
         <label className="search-control">
           <Search size={18} aria-hidden="true" />
@@ -113,7 +126,7 @@ export function MealMarket({ limit, dense, favorites, onSelect }: { limit?: numb
             <span role="columnheader">Meal</span><span role="columnheader">Time</span><span role="columnheader">Energy</span><span role="columnheader">Protein</span><span role="columnheader">Fiber</span><span role="columnheader"><span className="sr-only">Open</span></span>
           </div>
           {results.map((meal) => (
-            <button type="button" className="dense-row" role="row" key={meal.id} onClick={() => onSelect(meal)}>
+            <button type="button" className="dense-row" role="row" key={meal.id} onClick={() => onSelect(meal)} {...dragProps(meal)}>
               <span role="cell"><i style={{ background: meal.accent }} /> <b>{meal.name}</b><small>{meal.cuisine}</small></span>
               <span role="cell">{meal.prepMinutes} min</span>
               <span role="cell">{meal.calories} kcal</span>
@@ -126,7 +139,8 @@ export function MealMarket({ limit, dense, favorites, onSelect }: { limit?: numb
       ) : (
         <div className="meal-grid">
           {results.map((meal) => (
-            <article className="meal-card" key={meal.id}>
+            <article className="meal-card" key={meal.id} {...dragProps(meal)}>
+              {draggable ? <span className="drag-grip" aria-hidden="true"><GripVertical size={15} /></span> : null}
               <button type="button" className="meal-card-main" onClick={() => onSelect(meal)} aria-label={`Open ${meal.name}`}>
                 <MealArtwork meal={meal} />
                 <div className="meal-card-copy">
@@ -147,22 +161,60 @@ export function MealMarket({ limit, dense, favorites, onSelect }: { limit?: numb
   );
 }
 
-export function WeekPlanner({ entries, onSelectMeal }: { entries: PlanEntry[]; onSelectMeal: (meal: Meal) => void }) {
+export function WeekPlanner({
+  componentId,
+  entries,
+  slots = SLOTS,
+  emptyText,
+  onSelectMeal,
+}: {
+  componentId: string;
+  entries: PlanEntry[];
+  slots?: readonly MealSlot[];
+  emptyText?: string;
+  onSelectMeal: (meal: Meal) => void;
+}) {
   const days = useMemo(currentWeekDates, []);
+  const { targets, active, accepts, drop, endDrag } = useDragBindings();
+  const [over, setOver] = useState<string | null>(null);
+  const droppable = targets.has(componentId);
+  const armed = droppable && accepts(componentId);
+
+  const cellProps = (date: string, slot: MealSlot) =>
+    armed
+      ? {
+          onDragOver: (event: DragEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            setOver(`${date}:${slot}`);
+          },
+          onDragLeave: () => setOver((current) => (current === `${date}:${slot}` ? null : current)),
+          onDrop: (event: DragEvent<HTMLDivElement>) => {
+            setOver(null);
+            drop(componentId, { date, slot }, event);
+            endDrag();
+          },
+        }
+      : {};
 
   return (
-    <div className="week-planner" aria-label="Weekly meal plan">
+    <div className={`week-planner ${armed ? "is-receiving" : ""}`} aria-label="Weekly meal plan">
+      {droppable && !entries.length && emptyText ? <p className="week-empty-note">{emptyText}</p> : null}
       {days.map((date) => {
         const dayEntries = entries.filter((entry) => entry.date === date);
         return (
           <section className={`day-column ${date === currentDate() ? "is-today" : ""}`} key={date}>
             <header><span>{displayDate(date, { weekday: "short" })}</span><b>{displayDate(date, { day: "numeric" })}</b></header>
             <div className="day-slots">
-              {(["breakfast", "lunch", "dinner"] as const).map((slot) => {
+              {slots.map((slot) => {
                 const entry = dayEntries.find((candidate) => candidate.slot === slot);
                 const meal = entry ? mealById.get(entry.mealId) : null;
                 return (
-                  <div className={`plan-slot ${entry ? "is-filled" : ""}`} key={slot}>
+                  <div
+                    className={`plan-slot ${entry ? "is-filled" : ""} ${armed ? "is-target" : ""} ${over === `${date}:${slot}` ? "is-over" : ""}`}
+                    key={slot}
+                    {...cellProps(date, slot)}
+                  >
                     <span>{slot}</span>
                     {entry && meal ? (
                       <>
@@ -170,7 +222,7 @@ export function WeekPlanner({ entries, onSelectMeal }: { entries: PlanEntry[]; o
                         <small>{entry.author === "agent" ? "Assistant" : "You"}</small>
                         <button type="button" className="remove-slot" aria-label={`Remove ${meal.name} from ${displayDate(date)} ${slot}`} onClick={() => void appStore.applyPlanChanges([{ date, slot, mealId: null }], "human")}><X size={13} /></button>
                       </>
-                    ) : <em>Open</em>}
+                    ) : <em>{armed && active ? `Drop ${active.label}` : "Open"}</em>}
                   </div>
                 );
               })}

@@ -5,6 +5,10 @@ import type { Expression, Scalar } from "./types";
 export interface EvaluationContext {
   resources: Record<string, readonly Record<string, unknown>[]>;
   record?: Record<string, unknown>;
+  /** Values lifted off the item being dragged; present only while resolving an interaction. */
+  dragged?: Record<string, unknown>;
+  /** Values describing the drop cell under the pointer, supplied by the trusted renderer. */
+  cell?: Record<string, unknown>;
   now?: Date;
 }
 
@@ -61,6 +65,10 @@ const evaluate = (
     }
     case "field":
       return record?.[expression.name] ?? null;
+    case "dragged":
+      return context.dragged?.[expression.name] ?? null;
+    case "cell":
+      return context.cell?.[expression.name] ?? null;
     case "mealField": {
       const mealId = record?.[expression.mealRefField];
       if (typeof mealId !== "string") return null;

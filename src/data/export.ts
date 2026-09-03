@@ -1,23 +1,24 @@
-import { LIMITS } from "../composition/limits";
-import type { CustomRecord, UIConfiguration, ValidationIssue } from "../composition/types";
-import { validateConfiguration } from "../composition/validate";
+import { CAPABILITY_VERSION, LIMITS } from "../composition/limits";
+import type { CustomRecord, UserLayer, ValidationIssue } from "../composition/types";
+import { validateUserLayer } from "../composition/validate";
 import type { AppSnapshot } from "./types";
 
 export interface YourWebBundle {
   format: "yourweb-bundle";
-  formatVersion: 1;
-  capabilityVersion: 1;
+  formatVersion: 2;
+  capabilityVersion: typeof CAPABILITY_VERSION;
   exportedAt: string;
-  configuration: UIConfiguration;
+  /** Only the user half travels. The developer base ships with the app. */
+  layer: UserLayer;
   customRecords?: CustomRecord[];
 }
 
 export const createExportBundle = (snapshot: AppSnapshot, includeRecords: boolean): YourWebBundle => ({
   format: "yourweb-bundle",
-  formatVersion: 1,
-  capabilityVersion: 1,
+  formatVersion: 2,
+  capabilityVersion: CAPABILITY_VERSION,
   exportedAt: new Date().toISOString(),
-  configuration: structuredClone(snapshot.configuration),
+  layer: structuredClone(snapshot.layer),
   ...(includeRecords ? { customRecords: structuredClone(snapshot.customRecords) } : {}),
 });
 
@@ -30,11 +31,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(v
 export const validateImportBundle = (input: unknown): ImportValidation => {
   const issues: ValidationIssue[] = [];
   if (!isRecord(input)) return { ok: false, issues: [{ path: "/", message: "Import must be a JSON object." }] };
-  if (input.format !== "yourweb-bundle" || input.formatVersion !== 1 || input.capabilityVersion !== 1) {
+  if (input.format !== "yourweb-bundle" || input.formatVersion !== 2 || input.capabilityVersion !== CAPABILITY_VERSION) {
     issues.push({ path: "/format", message: "Unsupported YourWeb bundle format or version." });
   }
-  const configuration = validateConfiguration(input.configuration);
-  if (!configuration.ok) issues.push(...configuration.issues.map((issue) => ({ ...issue, path: `/configuration${issue.path}` })));
+  const layer = validateUserLayer(input.layer);
+  if (!layer.ok) issues.push(...layer.issues.map((issue) => ({ ...issue, path: `/layer${issue.path}` })));
 
   const records: CustomRecord[] = [];
   if (input.customRecords !== undefined) {
@@ -55,15 +56,15 @@ export const validateImportBundle = (input: unknown): ImportValidation => {
     }
   }
 
-  if (issues.length || !configuration.ok) return { ok: false, issues };
+  if (issues.length || !layer.ok) return { ok: false, issues };
   return {
     ok: true,
     bundle: {
       format: "yourweb-bundle",
-      formatVersion: 1,
-      capabilityVersion: 1,
+      formatVersion: 2,
+      capabilityVersion: CAPABILITY_VERSION,
       exportedAt: typeof input.exportedAt === "string" ? input.exportedAt : new Date().toISOString(),
-      configuration: configuration.value,
+      layer: layer.value,
       ...(input.customRecords ? { customRecords: records } : {}),
     },
   };

@@ -1,12 +1,21 @@
 import { mealById, meals } from "../catalog/meals";
+import { getBase } from "../composition/base";
+import { cloneLayer, createUserLayer, resolveConfiguration } from "../composition/layer";
 import { LIMITS } from "../composition/limits";
 import { consumeConfigurationPreview } from "../composition/operations";
-import { PRESET_REVISION, createPresetFork, presets, refreshPresetContent } from "../composition/presets";
-import type { ActivityEntry, ConfigurationHistoryEntry, CustomCollectionSchema, CustomRecord, Scalar, UIConfiguration } from "../composition/types";
-import { validateConfiguration } from "../composition/validate";
+import type {
+  ActivityEntry,
+  BaseId,
+  CustomCollectionSchema,
+  CustomRecord,
+  LayerHistoryEntry,
+  Scalar,
+  UserLayer,
+} from "../composition/types";
+import { validateUserLayer } from "../composition/validate";
 import { deriveGroceryList, updateMealPlan, type PlanUpdateResult } from "../domain/mealPlan";
-import type { PlanChange } from "../domain/types";
-import { createExportBundle, type YourWebBundle, validateImportBundle } from "./export";
+import type { MealSlot, PlanChange } from "../domain/types";
+import { createExportBundle, validateImportBundle } from "./export";
 import { createInitialSnapshot, loadSnapshot, persistSnapshot } from "./db";
 import type { AppRuntimeState, AppSnapshot } from "./types";
 
@@ -21,14 +30,16 @@ const activity = (
   status: ActivityEntry["status"] = "success",
 ): ActivityEntry => ({ id: crypto.randomUUID(), timestamp: now(), source, title, detail, status });
 
-const runtimeFromSnapshot = (snapshot: AppSnapshot, storageMode: AppRuntimeState["storageMode"]): AppRuntimeState => ({
-  ...snapshot,
-  ready: true,
-  storageMode,
+const historyEntry = (layer: UserLayer, author: LayerHistoryEntry["author"], summary: string): LayerHistoryEntry => ({
+  id: crypto.randomUUID(),
+  timestamp: now(),
+  author,
+  summary,
+  layer: cloneLayer(layer),
 });
 
 const snapshotFromRuntime = (state: AppRuntimeState): AppSnapshot => ({
-  configuration: state.configuration,
+  layer: state.layer,
   activeSurfaceId: state.activeSurfaceId,
   planRevision: state.planRevision,
   planEntries: state.planEntries,
@@ -38,21 +49,24 @@ const snapshotFromRuntime = (state: AppRuntimeState): AppSnapshot => ({
   activity: state.activity,
 });
 
-const trimState = (state: AppRuntimeState): AppRuntimeState => ({
-  ...state,
-  history: state.history.slice(-LIMITS.history),
-  activity: state.activity.slice(-LIMITS.activity),
+/** Fold the base and the saved layer together, then make sure the active surface still exists. */
+const runtimeFromSnapshot = (snapshot: AppSnapshot, storageMode: AppRuntimeState["storageMode"]): AppRuntimeState => {
+  const { configuration, index } = resolveConfiguration(snapshot.layer);
+  const visible = configuration.surfaces.filter((surface) => !surface.hidden);
+  const activeSurfaceId = visible.some((surface) => surface.id === snapshot.activeSurfaceId)
+    ? snapshot.activeSurfaceId
+    : visible[0]?.id ?? configuration.surfaces[0]?.id ?? snapshot.activeSurfaceId;
+  return { ...snapshot, activeSurfaceId, ready: true, storageMode, configuration, elements: index };
+};
+
+const trimSnapshot = (snapshot: AppSnapshot): AppSnapshot => ({
+  ...snapshot,
+  history: snapshot.history.slice(-LIMITS.history),
+  activity: snapshot.activity.slice(-LIMITS.activity),
 });
 
-const historyEntry = (configuration: UIConfiguration, author: ConfigurationHistoryEntry["author"], summary: string): ConfigurationHistoryEntry => ({
-  id: crypto.randomUUID(),
-  timestamp: now(),
-  author,
-  summary,
-  configuration: structuredClone(configuration),
-});
-
-const schemaFor = (state: AppRuntimeState, collectionId: string) => state.configuration.collections.find((collection) => collection.id === collectionId && !collection.archived);
+const schemaFor = (state: AppRuntimeState, collectionId: string) =>
+  state.configuration.collections.find((collection) => collection.id === collectionId && !collection.archived);
 
 const validateRecordValues = (schema: CustomCollectionSchema, values: Record<string, unknown>) => {
   const issues: Array<{ path: string; message: string }> = [];
@@ -97,7 +111,7 @@ const validateRecordValues = (schema: CustomCollectionSchema, values: Record<str
 };
 
 export class YourWebStore {
-  private state: AppRuntimeState = { ...createInitialSnapshot(), ready: false, storageMode: "indexeddb" };
+  private state: AppRuntimeState = { ...runtimeFromSnapshot(createInitialSnapshot(), "indexeddb"), ready: false };
   private listeners = new Set<Listener>();
   private writeQueue: Promise<void> = Promise.resolve();
 
@@ -126,10 +140,10 @@ export class YourWebStore {
     }
   }
 
-  private queueMutation(mutator: (current: AppRuntimeState) => AppRuntimeState | Promise<AppRuntimeState>) {
+  private queueMutation(mutator: (current: AppRuntimeState) => AppSnapshot | Promise<AppSnapshot>) {
     this.writeQueue = this.writeQueue.then(async () => {
-      const candidate = trimState(await mutator(this.state));
-      this.state = await this.persist(candidate);
+      const snapshot = trimSnapshot(await mutator(this.state));
+      this.state = await this.persist(runtimeFromSnapshot(snapshot, this.state.storageMode));
       this.emit();
     });
     return this.writeQueue;
@@ -137,33 +151,27 @@ export class YourWebStore {
 
   async initialize() {
     try {
-      const loaded = await loadSnapshot();
-      const validation = validateConfiguration(loaded.configuration);
+      const { snapshot, migrated } = await loadSnapshot();
+      const validation = validateUserLayer(snapshot.layer);
       if (validation.ok) {
-        const stale = validation.value.presetRevision !== PRESET_REVISION;
-        const configuration = stale
-          ? { ...refreshPresetContent(validation.value), version: validation.value.version + 1 }
-          : validation.value;
-        const validSurface = configuration.surfaces.some((surface) => surface.id === loaded.activeSurfaceId);
-        const snapshot = {
-          ...loaded,
-          configuration,
-          activeSurfaceId: validSurface ? loaded.activeSurfaceId : configuration.surfaces[0]!.id,
-          history: stale ? [...loaded.history, historyEntry(validation.value, "system", "Before applying updated built-in layouts")] : loaded.history,
-          activity: stale
-            ? [...loaded.activity, activity("system", "Built-in layouts updated", "The shipped Meals and Week screens were refreshed. Your plan, saved entries and any assistant-created screens were kept.")]
-            : loaded.activity,
-        };
-        this.state = runtimeFromSnapshot(snapshot, "indexeddb");
-        if (stale) await persistSnapshot(snapshot);
+        const notes: ActivityEntry[] = [];
+        if (migrated) notes.push(activity("system", "Saved setup upgraded", "Your screens, record types and meal history moved to the new layered format."));
+        this.state = runtimeFromSnapshot({ ...snapshot, activity: [...snapshot.activity, ...notes] }, "indexeddb");
+        if (migrated) await persistSnapshot(snapshotFromRuntime(this.state));
       } else {
-        const fallback = createInitialSnapshot();
-        fallback.customRecords = loaded.customRecords;
-        fallback.planEntries = loaded.planEntries;
-        fallback.planRevision = loaded.planRevision;
-        fallback.activity = [...loaded.activity, activity("system", "Configuration recovered", "An invalid saved configuration was replaced with Minimal. Personal records and meal history were preserved.", "warning")];
+        const fallback: AppSnapshot = {
+          ...createInitialSnapshot(),
+          customRecords: snapshot.customRecords,
+          planEntries: snapshot.planEntries,
+          planRevision: snapshot.planRevision,
+          favorites: snapshot.favorites,
+          activity: [
+            ...snapshot.activity,
+            activity("system", "Setup recovered", "A saved personalisation no longer fits this version of the site and was reset. Your meals, plan and saved entries were kept.", "warning"),
+          ],
+        };
         this.state = runtimeFromSnapshot(fallback, "indexeddb");
-        await persistSnapshot(fallback);
+        await persistSnapshot(snapshotFromRuntime(this.state));
       }
     } catch (error) {
       const fallback = createInitialSnapshot();
@@ -174,20 +182,25 @@ export class YourWebStore {
   }
 
   setActiveSurface(surfaceId: string) {
-    if (!this.state.configuration.surfaces.some((surface) => surface.id === surfaceId)) return Promise.resolve();
-    return this.queueMutation((state) => ({ ...state, activeSurfaceId: surfaceId }));
+    const surface = this.state.configuration.surfaces.find((candidate) => candidate.id === surfaceId);
+    if (!surface || surface.hidden) return Promise.resolve();
+    return this.queueMutation((state) => ({ ...snapshotFromRuntime(state), activeSurfaceId: surfaceId }));
   }
 
-  switchPreset(preset: keyof typeof presets) {
+  /** Swap which developer base the layer sits on. Patches and user screens ride along. */
+  switchBase(baseId: BaseId) {
+    if (this.state.layer.baseId === baseId) return Promise.resolve();
     return this.queueMutation((state) => {
-      const configuration = createPresetFork(preset);
-      configuration.version = state.configuration.version + 1;
+      const layer = cloneLayer(state.layer);
+      layer.baseId = baseId;
+      layer.revision += 1;
+      const { configuration } = resolveConfiguration(layer);
       return {
-        ...state,
-        configuration,
-        activeSurfaceId: configuration.surfaces[0]!.id,
-        history: [...state.history, historyEntry(state.configuration, "human", `Before switching to ${configuration.name}`)],
-        activity: [...state.activity, activity("human", `${configuration.name} activated`, "The layout changed; meal plans and custom records stayed in place.")],
+        ...snapshotFromRuntime(state),
+        layer,
+        activeSurfaceId: configuration.surfaces.find((surface) => !surface.hidden)?.id ?? state.activeSurfaceId,
+        history: [...state.history, historyEntry(state.layer, "human", `Before switching to ${getBase(baseId).name}`)],
+        activity: [...state.activity, activity("human", `${getBase(baseId).name} layout activated`, "The built-in screens changed. Your added screens, record types and interactions came with you.")],
       };
     });
   }
@@ -196,7 +209,7 @@ export class YourWebStore {
     const result = updateMealPlan({ revision: this.state.planRevision, entries: this.state.planEntries }, changes, author, options);
     if (!result.ok) return Promise.resolve(result);
     return this.queueMutation((state) => ({
-      ...state,
+      ...snapshotFromRuntime(state),
       planRevision: result.plan.revision,
       planEntries: result.plan.entries,
       activity: [...state.activity, activity(author, "Week updated", `${result.changed.length} meal(s) set and ${result.removed.length} removed.`)],
@@ -207,7 +220,7 @@ export class YourWebStore {
     if (!mealById.has(mealId)) return Promise.resolve(false);
     const enabled = !this.state.favorites.includes(mealId);
     return this.queueMutation((state) => ({
-      ...state,
+      ...snapshotFromRuntime(state),
       favorites: enabled ? [...state.favorites, mealId] : state.favorites.filter((id) => id !== mealId),
       activity: [...state.activity, activity(source, enabled ? "Meal saved" : "Meal unsaved", mealById.get(mealId)!.name)],
     })).then(() => enabled);
@@ -215,15 +228,15 @@ export class YourWebStore {
 
   addCustomRecord(collectionId: string, values: Record<string, unknown>) {
     const schema = schemaFor(this.state, collectionId);
-    if (!schema) return Promise.resolve({ ok: false as const, issues: [{ path: "/collectionId", message: `Unknown active collection '${collectionId}'.` }] });
+    if (!schema) return Promise.resolve({ ok: false as const, issues: [{ path: "/collectionId", message: `Unknown active record type '${collectionId}'.` }] });
     const existing = this.state.customRecords.filter((record) => record.collectionId === collectionId);
-    if (existing.length >= LIMITS.recordsPerCollection) return Promise.resolve({ ok: false as const, issues: [{ path: "/collectionId", message: `Collection '${collectionId}' has reached its record limit.` }] });
+    if (existing.length >= LIMITS.recordsPerCollection) return Promise.resolve({ ok: false as const, issues: [{ path: "/collectionId", message: `'${collectionId}' has reached its record limit.` }] });
     const validation = validateRecordValues(schema, values);
     if (!validation.ok) return Promise.resolve(validation);
     const timestamp = now();
     const record: CustomRecord = { id: crypto.randomUUID(), collectionId, values: validation.values, createdAt: timestamp, updatedAt: timestamp };
     return this.queueMutation((state) => ({
-      ...state,
+      ...snapshotFromRuntime(state),
       customRecords: [...state.customRecords, record],
       activity: [...state.activity, activity("human", `${schema.name} updated`, "A local record was added.")],
     })).then(() => ({ ok: true as const, record }));
@@ -232,19 +245,19 @@ export class YourWebStore {
   removeCustomRecord(recordId: string) {
     const record = this.state.customRecords.find((candidate) => candidate.id === recordId);
     if (!record) return Promise.resolve(false);
-    return this.queueMutation((state) => ({ ...state, customRecords: state.customRecords.filter((candidate) => candidate.id !== recordId) })).then(() => true);
+    return this.queueMutation((state) => ({ ...snapshotFromRuntime(state), customRecords: state.customRecords.filter((candidate) => candidate.id !== recordId) })).then(() => true);
   }
 
   applyPreview(previewId: string, author: "human" | "agent" = "agent") {
-    const result = consumeConfigurationPreview(previewId, this.state.configuration.version);
+    const result = consumeConfigurationPreview(previewId, this.state.layer.revision);
     if (!result.ok) return Promise.resolve(result);
     return this.queueMutation((state) => {
       const nextSurface = result.preview.diff.addedSurfaces[0] ?? state.activeSurfaceId;
       return {
-        ...state,
-        configuration: result.preview.configuration,
-        activeSurfaceId: result.preview.configuration.surfaces.some((surface) => surface.id === nextSurface) ? nextSurface : result.preview.configuration.surfaces[0]!.id,
-        history: [...state.history, historyEntry(state.configuration, author, result.preview.diff.summary)],
+        ...snapshotFromRuntime(state),
+        layer: result.preview.layer,
+        activeSurfaceId: nextSurface,
+        history: [...state.history, historyEntry(state.layer, author, result.preview.diff.summary)],
         activity: [...state.activity, activity(author, "Interface recomposed", result.preview.diff.summary)],
       };
     }).then(() => result);
@@ -254,20 +267,29 @@ export class YourWebStore {
     const previous = this.state.history.at(-1);
     if (!previous) return Promise.resolve(false);
     return this.queueMutation((state) => {
-      const restored = structuredClone(previous.configuration);
-      restored.version = state.configuration.version + 1;
+      const restored = cloneLayer(previous.layer);
+      restored.revision = state.layer.revision + 1;
       return {
-        ...state,
-        configuration: restored,
-        activeSurfaceId: restored.surfaces.some((surface) => surface.id === state.activeSurfaceId) ? state.activeSurfaceId : restored.surfaces[0]!.id,
+        ...snapshotFromRuntime(state),
+        layer: restored,
         history: state.history.slice(0, -1),
         activity: [...state.activity, activity(source, "Interface change undone", previous.summary)],
       };
     }).then(() => true);
   }
 
+  /** Drop every personalisation, keeping the base choice, the meal plan and every record. */
   resetConfiguration() {
-    return this.switchPreset(this.state.configuration.presetBase);
+    return this.queueMutation((state) => {
+      const layer = createUserLayer(state.layer.baseId);
+      layer.revision = state.layer.revision + 1;
+      return {
+        ...snapshotFromRuntime(state),
+        layer,
+        history: [...state.history, historyEntry(state.layer, "human", "Before resetting to the built-in layout")],
+        activity: [...state.activity, activity("human", "Personalisation cleared", "The site is back to its built-in screens. Your meals, plan and saved entries were kept.")],
+      };
+    });
   }
 
   exportBundle(includeRecords: boolean) {
@@ -278,34 +300,39 @@ export class YourWebStore {
     const validation = validateImportBundle(input);
     if (!validation.ok) return Promise.resolve(validation);
     return this.queueMutation((state) => {
-      const configuration = structuredClone(validation.bundle.configuration);
-      configuration.version = state.configuration.version + 1;
+      const layer = cloneLayer(validation.bundle.layer);
+      layer.revision = state.layer.revision + 1;
       return {
-        ...state,
-        configuration,
-        activeSurfaceId: configuration.surfaces[0]!.id,
+        ...snapshotFromRuntime(state),
+        layer,
         customRecords: validation.bundle.customRecords ?? state.customRecords,
-        history: [...state.history, historyEntry(state.configuration, "import", "Before importing a configuration bundle")],
+        history: [...state.history, historyEntry(state.layer, "import", "Before importing a configuration bundle")],
         activity: [...state.activity, activity("human", "Configuration imported", validation.bundle.customRecords ? "Configuration and local records were imported." : "Configuration imported; existing local records were preserved.")],
       };
     }).then(() => validation);
   }
 
   addActivity(entry: Omit<ActivityEntry, "id" | "timestamp">) {
-    return this.queueMutation((state) => ({ ...state, activity: [...state.activity, { ...entry, id: crypto.randomUUID(), timestamp: now() }] }));
+    return this.queueMutation((state) => ({
+      ...snapshotFromRuntime(state),
+      activity: [...state.activity, { ...entry, id: crypto.randomUUID(), timestamp: now() }],
+    }));
   }
 
-  getResources() {
-    const groceryList = deriveGroceryList(this.state.planEntries);
+  recordsFor(collectionId: string) {
+    return this.state.customRecords.filter((record) => record.collectionId === collectionId);
+  }
+
+  getResources(): Record<string, readonly Record<string, unknown>[]> {
     const custom = Object.fromEntries(
       this.state.configuration.collections
         .filter((collection) => !collection.archived)
         .map((collection) => [collection.id, this.state.customRecords.filter((record) => record.collectionId === collection.id).map((record) => ({ id: record.id, ...record.values }))]),
     );
     return {
-      meals,
-      "meal-plan": this.state.planEntries,
-      "grocery-list": groceryList,
+      meals: meals as unknown as readonly Record<string, unknown>[],
+      "meal-plan": this.state.planEntries as unknown as readonly Record<string, unknown>[],
+      "grocery-list": deriveGroceryList(this.state.planEntries) as unknown as readonly Record<string, unknown>[],
       ...custom,
     };
   }

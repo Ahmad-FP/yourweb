@@ -12,10 +12,10 @@ coverage/
 !.dev.vars.example
 
 # internal planning and design-tool working documents (not published)
-PLAN.md
-PRODUCT.md
-DESIGN.md
-DEMO.md
+/PLAN.md
+/PRODUCT.md
+/DESIGN.md
+/DEMO.md
 .impeccable/
 
 # superseded captures from earlier design passes (kept locally, not published)

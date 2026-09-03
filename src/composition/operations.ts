@@ -1,29 +1,42 @@
+import { baseElementIds } from "./base";
+import { cloneLayer, collectComponents, resolveConfiguration } from "./layer";
 import { LIMITS } from "./limits";
-import type { UIChangeOperation, UIConfiguration, ValidationIssue } from "./types";
-import { validateConfiguration, validateOperations } from "./validate";
+import type { ElementInfo, LayerPatch, UIChangeOperation, UserLayer, ValidationIssue } from "./types";
+import { validateOperations, validateUserLayer } from "./validate";
 
 export interface ConfigurationDiff {
   summary: string;
   addedSurfaces: string[];
   updatedSurfaces: string[];
   removedSurfaces: string[];
+  hiddenElements: string[];
+  shownElements: string[];
+  movedSurfaces: string[];
+  insertedNodes: string[];
+  removedNodes: string[];
   addedCollections: string[];
   updatedCollections: string[];
   archivedCollections: string[];
+  addedInteractions: string[];
+  removedInteractions: string[];
   warnings: string[];
 }
 
 export interface ConfigurationPreview {
   id: string;
-  baseVersion: number;
+  baseRevision: number;
   expiresAt: number;
-  configuration: UIConfiguration;
+  layer: UserLayer;
   diff: ConfigurationDiff;
   approvedAt?: number;
 }
 
 export type PreviewResult =
   | { ok: true; preview: ConfigurationPreview }
+  | { ok: false; code: string; message: string; issues?: ValidationIssue[] };
+
+export type OperationResult =
+  | { ok: true; layer: UserLayer }
   | { ok: false; code: string; message: string; issues?: ValidationIssue[] };
 
 const previews = new Map<string, ConfigurationPreview>();
@@ -44,9 +57,18 @@ export const getLatestConfigurationPreview = () => {
   return latestPreviewId ? previews.get(latestPreviewId) ?? null : null;
 };
 
-export const cloneConfiguration = (configuration: UIConfiguration): UIConfiguration => structuredClone(configuration);
+const insertedNodeIds = (layer: UserLayer) =>
+  layer.patches.flatMap((patch) => (patch.op === "insert" ? [patch.node.id] : []));
 
-const buildDiff = (before: UIConfiguration, after: UIConfiguration): ConfigurationDiff => {
+const hiddenIds = (layer: UserLayer) =>
+  layer.patches.flatMap((patch) => (patch.op === "hide" ? [patch.targetId] : []));
+
+const movedIds = (layer: UserLayer) =>
+  layer.patches.flatMap((patch) => (patch.op === "move_surface" ? [`${patch.surfaceId}:${patch.order}`] : []));
+
+const changedList = (before: string[], after: string[]) => after.filter((id) => !before.includes(id));
+
+const buildDiff = (before: UserLayer, after: UserLayer): ConfigurationDiff => {
   const beforeSurfaces = new Map(before.surfaces.map((surface) => [surface.id, surface]));
   const afterSurfaces = new Map(after.surfaces.map((surface) => [surface.id, surface]));
   const beforeCollections = new Map(before.collections.map((collection) => [collection.id, collection]));
@@ -58,52 +80,193 @@ const buildDiff = (before: UIConfiguration, after: UIConfiguration): Configurati
   const addedCollections = [...afterCollections.keys()].filter((id) => !beforeCollections.has(id));
   const updatedCollections = [...afterCollections.keys()].filter((id) => beforeCollections.has(id) && JSON.stringify(beforeCollections.get(id)) !== JSON.stringify(afterCollections.get(id)));
   const archivedCollections = [...afterCollections.values()].filter((collection) => collection.archived && !beforeCollections.get(collection.id)?.archived).map((collection) => collection.id);
-  const changes = addedSurfaces.length + removedSurfaces.length + updatedSurfaces.length + addedCollections.length + updatedCollections.length + archivedCollections.length;
+
+  const hiddenElements = changedList(hiddenIds(before), hiddenIds(after));
+  const shownElements = changedList(hiddenIds(after), hiddenIds(before));
+  const insertedNodes = changedList(insertedNodeIds(before), insertedNodeIds(after));
+  const removedNodes = changedList(insertedNodeIds(after), insertedNodeIds(before));
+  const movedSurfaces = changedList(movedIds(before), movedIds(after)).map((entry) => entry.split(":")[0]!);
+
+  const beforeInteractions = before.interactions.map((interaction) => interaction.id);
+  const afterInteractions = after.interactions.map((interaction) => interaction.id);
+  const addedInteractions = changedList(beforeInteractions, afterInteractions);
+  const removedInteractions = changedList(afterInteractions, beforeInteractions);
+
+  const parts: string[] = [];
+  const add = (count: number, singular: string, plural = `${singular}s`) => {
+    if (count) parts.push(`${count} ${count === 1 ? singular : plural}`);
+  };
+  add(addedSurfaces.length, "new screen");
+  add(updatedSurfaces.length, "updated screen");
+  add(removedSurfaces.length, "removed screen");
+  add(insertedNodes.length, "added block");
+  add(removedNodes.length, "removed block");
+  add(hiddenElements.length, "hidden element");
+  add(shownElements.length, "restored element");
+  add(movedSurfaces.length, "reordered screen");
+  add(addedCollections.length, "new record type");
+  add(updatedCollections.length, "updated record type");
+  add(archivedCollections.length, "archived record type");
+  add(addedInteractions.length, "new drag-and-drop interaction", "new drag-and-drop interactions");
+  add(removedInteractions.length, "removed interaction");
+
+  const warnings: string[] = [];
+  if (archivedCollections.length) warnings.push("Archiving a record type keeps every record. Re-adding the same id restores access to them.");
+  if (addedInteractions.length) warnings.push("A new interaction changes how dragging behaves across the whole site.");
 
   return {
-    summary: `${changes} structural ${changes === 1 ? "change" : "changes"}: ${addedSurfaces.length} surface(s) added, ${updatedSurfaces.length} updated, ${removedSurfaces.length} removed; ${addedCollections.length} collection(s) added, ${updatedCollections.length} updated, ${archivedCollections.length} archived.`,
+    summary: parts.length ? parts.join(", ") : "No structural change",
     addedSurfaces,
     updatedSurfaces,
     removedSurfaces,
+    hiddenElements,
+    shownElements,
+    movedSurfaces,
+    insertedNodes,
+    removedNodes,
     addedCollections,
     updatedCollections,
     archivedCollections,
-    warnings: archivedCollections.length ? ["Archiving a collection preserves its records. Re-adding the same collection ID restores access."] : [],
+    addedInteractions,
+    removedInteractions,
+    warnings,
   };
 };
 
-export const applyOperations = (base: UIConfiguration, operations: UIChangeOperation[]) => {
-  const next = cloneConfiguration(base);
+const protectedFailure = (info: ElementInfo | undefined, id: string, verb: string): OperationResult => {
+  if (!info) return { ok: false, code: "unknown_element", message: `No element with id '${id}' exists. Call get_ui_outline for the current ids.` };
+  const hint = info.policy.hideable && verb !== "hidden" ? " The developer does allow it to be hidden with hide_element." : "";
+  return {
+    ok: false,
+    code: "protected_element",
+    message: `'${id}' is a developer-owned element and cannot be ${verb}.${hint}`,
+  };
+};
+
+/**
+ * Apply an agent's batch to the user layer. Nothing here writes to the developer base: an
+ * operation either lands in the user layer or is refused by the element policy.
+ */
+export const applyOperations = (base: UserLayer, operations: UIChangeOperation[]): OperationResult => {
+  let next = cloneLayer(base);
+  let index = resolveConfiguration(next).index;
+  const reindex = () => {
+    index = resolveConfiguration(next).index;
+  };
 
   for (const operation of operations) {
     switch (operation.op) {
+      case "upsert_surface": {
+        if (baseElementIds.has(operation.surface.id)) return protectedFailure(index.get(operation.surface.id), operation.surface.id, "replaced");
+        const at = next.surfaces.findIndex((surface) => surface.id === operation.surface.id);
+        if (at === -1) {
+          if (next.surfaces.length >= LIMITS.userSurfaces) return { ok: false, code: "limit_reached", message: `A configuration may add at most ${LIMITS.userSurfaces} screens of its own.` };
+          next.surfaces.push(operation.surface);
+        } else {
+          next.surfaces[at] = operation.surface;
+        }
+        break;
+      }
+      case "remove_surface": {
+        const info = index.get(operation.surfaceId);
+        if (!info || info.owner === "developer") return protectedFailure(info, operation.surfaceId, "removed");
+        next.surfaces = next.surfaces.filter((surface) => surface.id !== operation.surfaceId);
+        next.patches = next.patches.filter((patch) => {
+          const target = patch.op === "hide" ? patch.targetId : patch.op === "move_surface" ? patch.surfaceId : patch.slotId;
+          return index.get(target)?.surfaceId !== operation.surfaceId;
+        });
+        next.interactions = next.interactions.filter(
+          (interaction) =>
+            index.get(interaction.source.componentId)?.surfaceId !== operation.surfaceId &&
+            index.get(interaction.target.componentId)?.surfaceId !== operation.surfaceId,
+        );
+        break;
+      }
+      case "hide_element": {
+        const info = index.get(operation.targetId);
+        if (!info || !info.policy.hideable) return protectedFailure(info, operation.targetId, "hidden");
+        if (!next.patches.some((patch) => patch.op === "hide" && patch.targetId === operation.targetId)) {
+          next.patches.push({ op: "hide", targetId: operation.targetId });
+        }
+        break;
+      }
+      case "show_element": {
+        next.patches = next.patches.filter((patch) => !(patch.op === "hide" && patch.targetId === operation.targetId));
+        break;
+      }
+      case "move_surface": {
+        const info = index.get(operation.surfaceId);
+        if (!info || info.kind !== "surface" || !info.policy.movable) return protectedFailure(info, operation.surfaceId, "reordered");
+        next.patches = next.patches.filter((patch) => !(patch.op === "move_surface" && patch.surfaceId === operation.surfaceId));
+        next.patches.push({ op: "move_surface", surfaceId: operation.surfaceId, order: operation.order });
+        break;
+      }
+      case "insert_into_slot": {
+        const info = index.get(operation.slotId);
+        if (!info || !info.policy.extendable) return protectedFailure(info, operation.slotId, "extended");
+        if (index.has(operation.node.id)) return { ok: false, code: "duplicate_id", message: `Element id '${operation.node.id}' is already in use.` };
+        const patch: LayerPatch = { op: "insert", slotId: operation.slotId, node: operation.node, ...(operation.position === undefined ? {} : { position: operation.position }) };
+        next.patches.push(patch);
+        break;
+      }
+      case "remove_inserted": {
+        const before = next.patches.length;
+        next.patches = next.patches.filter((patch) => !(patch.op === "insert" && patch.node.id === operation.nodeId));
+        if (next.patches.length === before) return { ok: false, code: "unknown_element", message: `No inserted block with id '${operation.nodeId}' exists. Developer-owned blocks can only be hidden.` };
+        break;
+      }
       case "upsert_collection": {
-        const index = next.collections.findIndex((collection) => collection.id === operation.collection.id);
+        if (baseElementIds.has(operation.collection.id)) return { ok: false, code: "protected_element", message: `'${operation.collection.id}' is a developer-owned record type.` };
+        const at = next.collections.findIndex((collection) => collection.id === operation.collection.id);
         const collection = { ...operation.collection, archived: false };
-        if (index === -1) next.collections.push(collection);
-        else next.collections[index] = collection;
+        if (at === -1) {
+          if (next.collections.length >= LIMITS.collections) return { ok: false, code: "limit_reached", message: `A configuration may hold at most ${LIMITS.collections} record types.` };
+          next.collections.push(collection);
+        } else {
+          next.collections[at] = collection;
+        }
         break;
       }
       case "remove_collection": {
         const collection = next.collections.find((candidate) => candidate.id === operation.collectionId);
-        if (collection) collection.archived = true;
+        if (!collection) return { ok: false, code: "unknown_element", message: `No record type '${operation.collectionId}' exists.` };
+        const users = collectComponents(resolveConfiguration(next).configuration)
+          .filter((node) => (node.kind === "form" && node.collectionId === operation.collectionId) || (node.kind === "collection" && node.query.source === operation.collectionId))
+          .map((node) => node.id);
+        if (users.length) {
+          return {
+            ok: false,
+            code: "record_type_in_use",
+            message: `'${operation.collectionId}' is still shown by ${users.join(", ")}. Remove or repoint those blocks in the same batch, then archive the record type.`,
+          };
+        }
+        collection.archived = true;
+        next.interactions = next.interactions.filter((interaction) => interaction.source.type !== `record:${operation.collectionId}`);
         break;
       }
-      case "upsert_surface": {
-        const index = next.surfaces.findIndex((surface) => surface.id === operation.surface.id);
-        if (index === -1) next.surfaces.push(operation.surface);
-        else next.surfaces[index] = operation.surface;
+      case "bind_interaction": {
+        const at = next.interactions.findIndex((interaction) => interaction.id === operation.interaction.id);
+        if (at === -1) {
+          if (next.interactions.length >= LIMITS.interactions) return { ok: false, code: "limit_reached", message: `A configuration may hold at most ${LIMITS.interactions} interactions.` };
+          next.interactions.push(operation.interaction);
+        } else {
+          next.interactions[at] = operation.interaction;
+        }
         break;
       }
-      case "remove_surface":
-        next.surfaces = next.surfaces.filter((surface) => surface.id !== operation.surfaceId);
+      case "unbind_interaction": {
+        const before = next.interactions.length;
+        next.interactions = next.interactions.filter((interaction) => interaction.id !== operation.interactionId);
+        if (next.interactions.length === before) return { ok: false, code: "unknown_element", message: `No interaction '${operation.interactionId}' exists.` };
         break;
+      }
     }
+    reindex();
   }
 
-  next.surfaces.sort((left, right) => left.order - right.order || left.title.localeCompare(right.title));
-  next.version = base.version + 1;
-  return next;
+  if (next.patches.length > LIMITS.patches) return { ok: false, code: "limit_reached", message: `A configuration may hold at most ${LIMITS.patches} adjustments to the base.` };
+  next.revision = base.revision + 1;
+  return { ok: true, layer: next };
 };
 
 const removeExpiredPreviews = () => {
@@ -112,27 +275,29 @@ const removeExpiredPreviews = () => {
 };
 
 export const createConfigurationPreview = (
-  base: UIConfiguration,
+  base: UserLayer,
   rawOperations: unknown,
-  expectedVersion?: number,
+  expectedRevision?: number,
 ): PreviewResult => {
   removeExpiredPreviews();
-  if (expectedVersion !== undefined && expectedVersion !== base.version) {
-    return { ok: false, code: "stale_configuration", message: `Expected configuration version ${expectedVersion}, but the active version is ${base.version}. Read the current outline and retry.` };
+  if (expectedRevision !== undefined && expectedRevision !== base.revision) {
+    return { ok: false, code: "stale_configuration", message: `Expected configuration revision ${expectedRevision}, but the active revision is ${base.revision}. Read the current outline and retry.` };
   }
   const operationResult = validateOperations(rawOperations);
   if (!operationResult.ok) return { ok: false, code: "invalid_operations", message: "The proposed operations do not match the bounded composition grammar.", issues: operationResult.issues };
 
-  const configuration = applyOperations(base, operationResult.value);
-  const validation = validateConfiguration(configuration);
+  const applied = applyOperations(base, operationResult.value);
+  if (!applied.ok) return applied;
+
+  const validation = validateUserLayer(applied.layer);
   if (!validation.ok) return { ok: false, code: "invalid_configuration", message: "The proposed change would create an invalid configuration.", issues: validation.issues };
 
   const id = crypto.randomUUID();
   const preview: ConfigurationPreview = {
     id,
-    baseVersion: base.version,
+    baseRevision: base.revision,
     expiresAt: Date.now() + LIMITS.previewLifetimeMs,
-    configuration: validation.value,
+    layer: validation.value,
     diff: buildDiff(base, validation.value),
   };
   previews.set(id, preview);
@@ -156,12 +321,12 @@ export const approveConfigurationPreview = (id: string) => {
   return true;
 };
 
-export const consumeConfigurationPreview = (id: string, activeVersion: number): PreviewResult => {
+export const consumeConfigurationPreview = (id: string, activeRevision: number): PreviewResult => {
   removeExpiredPreviews();
   const preview = previews.get(id);
   if (!preview) return { ok: false, code: "preview_not_found", message: "The preview is missing or expired. Preview the changes again." };
   if (!preview.approvedAt) return { ok: false, code: "preview_not_approved", message: "The structural preview is waiting for the user to approve it in the YourWeb interface." };
-  if (preview.baseVersion !== activeVersion) {
+  if (preview.baseRevision !== activeRevision) {
     previews.delete(id);
     return { ok: false, code: "stale_preview", message: "The active configuration changed after this preview. Read the current outline and create a new preview." };
   }
@@ -176,3 +341,5 @@ export const clearConfigurationPreviews = () => {
   latestPreviewId = null;
   emitPreviewChange();
 };
+
+export { buildDiff };
