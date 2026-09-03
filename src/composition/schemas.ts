@@ -114,7 +114,7 @@ const component = {
     },
     {
       type: "object", additionalProperties: false, required: ["id", "kind", "columns", "children"],
-      properties: { ...baseProperties, kind: { const: "grid" }, columns: { enum: [1, 2, 3, 4, "auto"] }, density: { enum: ["comfortable", "compact"] }, children: { type: "array", maxItems: LIMITS.components, items: ref("component") } },
+      properties: { ...baseProperties, kind: { const: "grid" }, columns: { enum: [1, 2, 3, 4, "auto", "split"] }, density: { enum: ["comfortable", "compact"] }, children: { type: "array", maxItems: LIMITS.components, items: ref("component") } },
     },
     {
       type: "object", additionalProperties: false, required: ["id", "kind", "text"],

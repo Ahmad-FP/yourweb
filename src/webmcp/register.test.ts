@@ -42,7 +42,7 @@ describe("WebMCP tool contract", () => {
 
     const surfaces = outline.surfaces as Array<Record<string, unknown>>;
     const discover = surfaces.find((surface) => surface.id === "discover")!;
-    expect(discover).toMatchObject({ owner: "developer", can: ["movable"] });
+    expect(discover).toMatchObject({ owner: "developer", can: ["hideable", "movable"] });
 
     const root = discover.tree as Record<string, unknown>;
     expect(root).toMatchObject({ id: "discover-root", can: ["extendable"] });

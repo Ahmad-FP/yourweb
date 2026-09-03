@@ -23,7 +23,7 @@ describe("developer base and user layer", () => {
 
   it("grants only the policy the developer declared", () => {
     const { index } = resolveConfiguration(createUserLayer());
-    expect(index.get("discover")?.policy).toMatchObject({ movable: true, removable: false, hideable: false });
+    expect(index.get("discover")?.policy).toMatchObject({ movable: true, hideable: true, removable: false, extendable: false });
     expect(index.get("week-root")?.policy.extendable).toBe(true);
     expect(index.get("discover-meals")?.policy).toEqual({ hideable: false, movable: false, extendable: false, removable: false });
     expect(index.get("week-metrics")?.policy.hideable).toBe(true);

@@ -25,7 +25,7 @@ const simple: BaseDefinition = {
       shortTitle: "Meals",
       icon: "market",
       order: 0,
-      policy: { movable: true },
+      policy: { movable: true, hideable: true },
       root: {
         id: "discover-root",
         kind: "section",
@@ -49,7 +49,7 @@ const simple: BaseDefinition = {
       shortTitle: "Week",
       icon: "calendar",
       order: 1,
-      policy: { movable: true },
+      policy: { movable: true, hideable: true },
       root: {
         id: "week-root",
         kind: "section",
@@ -101,7 +101,7 @@ const dense: BaseDefinition = {
       title: "Overview",
       icon: "spark",
       order: 0,
-      policy: { movable: true },
+      policy: { movable: true, hideable: true },
       root: {
         id: "overview-root",
         kind: "section",
@@ -146,7 +146,7 @@ const dense: BaseDefinition = {
       shortTitle: "Meals",
       icon: "market",
       order: 1,
-      policy: { movable: true },
+      policy: { movable: true, hideable: true },
       root: {
         id: "catalog-root",
         kind: "section",

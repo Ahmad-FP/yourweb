@@ -26,5 +26,5 @@ export const LIMITS = {
 export const CAPABILITY_VERSION = 2 as const;
 
 /** Bumped whenever the developer ships new base structure. Saved user layers survive it. */
-export const BASE_REVISION = 1 as const;
+export const BASE_REVISION = 2 as const;
 

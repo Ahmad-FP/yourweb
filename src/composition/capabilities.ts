@@ -19,7 +19,7 @@ export const capabilityCatalog = {
   },
   components: {
     section: "Optional eyebrow/title/description plus children.",
-    grid: "1-4 or auto columns plus children; comfortable or compact density.",
+    grid: "1-4, auto, or split columns plus children; comfortable or compact density. Split is a wide primary column beside a narrow one, and stacks on a phone.",
     text: "Plain bounded text; body, caption, lead or display.",
     metric: "Label plus numeric expression and optional unit.",
     progress: "Label, numeric value expression, numeric max expression.",

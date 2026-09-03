@@ -1168,3 +1168,26 @@ button.dense-row:hover { background: #f5ecde; }
   .drag-grip { opacity: 1; }
   .drag-status:not(:empty) { right: 12px; left: 12px; transform: none; text-align: center; }
 }
+
+/* A wide primary column beside a narrow one. Used when a week grid and a meal rail share a row. */
+.manifest-grid.columns-split {
+  grid-template-columns: minmax(0, 2.15fr) minmax(280px, 1fr);
+  align-items: start;
+}
+
+/* In the narrow track the meal cards drop to one per row and lose the artwork. */
+.manifest-grid.columns-split .market-view .meal-grid { grid-template-columns: minmax(0, 1fr); }
+.manifest-grid.columns-split .market-view .food-image { display: none; }
+.manifest-grid.columns-split .market-view .meal-card-copy { padding: 13px 14px 14px; }
+.manifest-grid.columns-split .market-view .meal-card h3 { margin: 6px 0 4px; font-size: 16px; }
+.manifest-grid.columns-split .market-view .meal-card p { display: none; }
+.manifest-grid.columns-split .market-view .market-controls { flex-wrap: wrap; }
+.manifest-grid.columns-split .market-view .result-count { width: 100%; }
+.manifest-grid.columns-split .drag-grip { top: 8px; left: auto; right: 8px; opacity: 1; }
+
+@media (max-width: 1080px) {
+  .manifest-grid.columns-split { grid-template-columns: minmax(0, 1fr); }
+  .manifest-grid.columns-split .market-view .meal-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .manifest-grid.columns-split .market-view .food-image { display: block; }
+  .manifest-grid.columns-split .market-view .meal-card p { display: block; }
+}

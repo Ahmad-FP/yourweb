@@ -1,157 +1,130 @@
 # YourWeb
 
-YourWeb is a local-first meal planner where the developer publishes a bounded composition system
-over WebMCP, and your own AI assembles a persistent version of the site out of it. The developer
-defines what is possible; your assistant composes those possibilities into a version of the site
-that fits you, and it survives a reload.
+**A website that lets your AI rebuild it, and keeps the rebuild.**
 
-It is a real meal product first: browse 18 synthetic community recipes, read the nutrition and
-method, plan a week, derive groceries. Then ask your assistant for the version you actually wanted.
+Every site today ships one interface and hopes it fits everyone. YourWeb ships something else: the
+*pieces* an interface is made of, published to your assistant over WebMCP. Your assistant arranges
+those pieces into the version of the site you actually wanted — new screens, new data, new
+interactions — and that version is saved in your browser and still there tomorrow.
 
-**Live demo:** [yourweb.fpahmad36.workers.dev](https://yourweb.fpahmad36.workers.dev)
+Not a chat panel bolted onto a website. Not the model driving the UI on your behalf, click by click.
+The site itself becomes something an assistant can compose, once, permanently.
 
-The assistant never writes HTML, CSS, JavaScript, or server code. It sends inert JSON describing
-screens, record types and interactions; YourWeb validates it against a closed grammar, stages it as
-a preview you approve, and renders it with trusted components.
+**Live:** [yourweb.fpahmad36.workers.dev](https://yourweb.fpahmad36.workers.dev) ·
+**Demo script:** [docs/demo.md](docs/demo.md)
 
-![YourWeb meal catalog](artifacts/screenshots/catalog-desktop.jpg)
+The demo site is a meal planner — 18 recipes, a week, a grocery list — because you need real data to
+arrange. The meal planner is not the point.
 
-## The two halves
+![YourWeb](artifacts/screenshots/catalog-desktop.jpg)
 
-Everything in the interface belongs to one of two layers.
+## Two minutes
 
-**The developer base** ships in the bundle. It is the screens YourWeb itself provides, and it is
-never written to your browser's storage. Each element carries a policy saying what a user layer may
-do to it: the week screen is movable, its metric row is hideable, its root section is extendable,
-and none of it is removable.
+Open the live site in a WebMCP-capable browser, enable Site Tools, and say:
 
-**The user layer** is the only thing that persists, and the only thing the assistant can change. It
-holds screens, record types and interactions of its own, plus adjustments keyed by base element id
-— hide this, move that, insert a block into that slot.
+> Read this site's UI capabilities and outline. Then build me a Today screen that logs what I eat and
+> tracks 2,000 kcal, put a meal list next to my week that I can drag straight onto a day, and hide
+> the counts row. Preview it and tell me when to approve.
 
-Because the layer stores adjustments rather than a copy of the base, shipping a new base revision
-replaces the developer's structure outright while every personalisation whose target still exists
-is re-applied on top. An adjustment whose target has left the base goes inert instead of breaking.
+Approve the preview that appears in the page, tell the assistant to apply it, then:
+
+1. **Drag a meal card onto a day.** That interaction did not exist when the page loaded.
+2. **Reload.** Everything is still there — with no model call, no network, no replay.
+3. **Ask what tools it has now.** There are more than there were. Your new tracker brought its own.
+4. **Ask it to delete the week screen.** It can't. The developer said so.
+
+In a hurry? [`docs/exports/side-by-side.yourweb.json`](docs/exports/side-by-side.yourweb.json) is a
+finished configuration you can load through Settings → Import JSON to skip to the end state.
+
+## What is actually new here
+
+**The site's structure survives your changes, and your changes survive the site's.** This is the
+part most personalisation gets wrong. Here the developer's screens and your version of them are two
+separate things that are folded together on every render. You never edit the developer's copy — you
+record adjustments against it ("hide this", "put a list here"). So YourWeb can ship a redesign
+tomorrow and your tracker, your layout and your drag interactions all still apply. See
+[`layer.ts`](src/composition/layer.ts) and the update test in
+[`layer.test.ts`](src/composition/layer.test.ts), which ships a fake future release and checks
+nothing is lost.
+
+**The developer keeps a veto, per element.** Every shipped element carries a policy: this screen can
+be hidden or reordered, this section can be extended, this calendar cannot be touched, and nothing
+can be deleted. An assistant asking for more gets a refusal that names what it *can* do instead.
+Personalisation without the site losing control of itself. See
+[`policy.ts`](src/composition/policy.ts).
+
+**New interactions, not just new layouts.** An assistant can invent behaviour the site never shipped
+— dragging a meal card onto a calendar cell to plan it — by binding a drag source to a drop target
+and an allowed action. It attaches to the developer's own calendar without modifying it. This is
+where "composition" stops meaning "rearrange some boxes". See
+[`interactions.ts`](src/composition/interactions.ts).
+
+**Things you build gain their own tools.** Create a food log and the site derives `list_intake_log`,
+`add_intake_log` and `remove_intake_log` from its saved field schema. Create a drag interaction and
+you get a tool that performs the same drop. The assistant can use what it just built, in the next
+sentence — and none of it is generated code. See [`derived.ts`](src/webmcp/derived.ts).
+
+**None of it is code.** The assistant sends a description — screens, fields, interactions as plain
+JSON. The site validates it, shows you a preview to approve, and renders it with its own components.
+No HTML, CSS, JavaScript, URL or executable string is ever accepted or run.
+
+## How it works
 
 ```text
-developer base (in the bundle)      user layer (in IndexedDB)
-  screens + element policy    ×       patches, screens, record types, interactions
-                              ↓
-                    resolved interface  →  React renderer
-                              ↓
-                    derived WebMCP tools
+developer base                          your layer
+screens + per-element policy            adjustments, screens, record types, interactions
+(ships in the bundle, never saved)      (the only thing in IndexedDB)
+                    \                  /
+                     resolved interface
+                              |
+                React renderer  +  derived WebMCP tools
 ```
 
-## Drag and drop is part of the grammar
+Ten tools are registered on load: five for the meal domain, five for reading and changing the
+interface (`get_ui_capabilities`, `get_ui_outline`, `preview_ui_changes`, `apply_ui_preview`,
+`undo_ui_change`). More appear as you build things.
 
-An interaction is a binding between two components that already exist:
+Changes are staged, never applied straight from a tool call. `preview_ui_changes` validates a batch
+and shows it in the page; only a human clicking **Approve** lets `apply_ui_preview` commit it.
 
-```jsonc
-{
-  "id": "plan-by-dragging",
-  "label": "Drag a meal onto a day",
-  "source": { "componentId": "week-picker", "type": "meal",
-              "payload": { "mealId": { "op": "field", "name": "id" } } },
-  "target": { "componentId": "week-calendar", "accepts": ["meal"],
-              "action": { "id": "add_meal_to_plan",
-                          "args": { "mealId": { "op": "dragged", "name": "mealId" },
-                                    "date":   { "op": "cell", "name": "date" },
-                                    "slot":   { "op": "cell", "name": "slot" } } } }
-}
-```
+## Safety
 
-Dragging a meal card onto a calendar cell is not a behaviour the shipped site has. Your assistant
-can create it, and because the interaction lives in the user layer it attaches to `week-calendar`,
-a developer-owned component, without editing it. Here `week-picker` is a meal list the assistant
-inserted into the week screen's extendable slot in the same batch — a drag cannot cross screens, so
-the grammar refuses a binding whose halves sit on different ones and says how to fix it.
+- Nothing executable crosses the boundary. Screens, expressions, actions and interactions are closed
+  types with runtime validation and hard limits — an unknown field is a rejection, not a warning.
+- The developer's structure cannot be edited, deleted or impersonated, by a tool call or by an
+  imported file. Hiding is the strongest thing granted, and it is always reversible.
+- Structural changes require human approval in the page, and expire. A stale revision fails rather
+  than overwriting newer work.
+- If the assistant tries to overwrite a meal *you* placed, it gets *Are you sure?* and a one-use
+  token instead of a silent replacement.
+- Removing a screen never removes its records. Archiving a record type keeps every row.
+- Everything is local: browser IndexedDB, no account, no backend, no model API. Exports omit your
+  personal records unless you tick the box.
+- Undo, reset, export and import live in the app shell and cannot be removed by any configuration.
 
-The developer decides what is bindable. A meal list can be a drag source of type `meal` exposing
-its record fields; a calendar offers `date` and `slot` per cell and permits `add_meal_to_plan` or
-`remove_meal_from_plan`; a custom record list permits `log_record`. A binding outside that registry
-is refused, and what crosses the pointer boundary is a small JSON payload built from the
-interaction's own expressions — never a function.
+## Honest scope
 
-## Features the assistant builds get their own tools
-
-Custom features do not stay inert. When a record type or an interaction is saved, YourWeb derives
-WebMCP tools from the persisted schema, in trusted app code:
-
-- a record type called `intake-log` yields `list_intake_log`, `add_intake_log` and
-  `remove_intake_log`, whose input schema is generated from its field definitions;
-- the `plan-by-dragging` interaction yields `run_plan_by_dragging`, which performs exactly the drop
-  a person would perform by hand.
-
-The derived set is kept in step with what is saved: change the record types or the interactions and
-the previous registration is aborted and a fresh set registered. No generated code is executed at
-any point — a derived tool is a closure over a validated schema, and its writes go through the same
-store methods the visible UI uses.
+The recipes, cooks and comments are synthetic showcase data — not real people or real marketplace
+activity. There is no auth, no sync, no publishing, no payments. Drag-and-drop is an addition, not a
+replacement: every meal can still be planned from the keyboard-accessible week picker in the recipe
+sheet. Built for the WebMCP challenge; the composition system is the submission, the meal planner is
+the vehicle for it.
 
 ## Run locally
 
-Requirements: Node.js 22 or newer and a WebMCP-capable browser environment.
+Node.js 22+, and a WebMCP-capable browser to exercise the tools.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Production checks:
-
 ```bash
-npm run typecheck
-npm test
+npm run typecheck   # tsc
+npm test            # 65 tests, including a real drag-and-drop cycle in the renderer
 npm run build
+npm run deploy      # Cloudflare Workers
 ```
-
-## Try it with Site Tools
-
-Open YourWeb in a browser with WebMCP support, enable Site Tools, and work through
-[docs/demo.md](docs/demo.md). The short version:
-
-1. `Find three high-protein dinners on this site and plan them for Monday, Wednesday and Friday.`
-2. `Read this site's UI capabilities and outline. Then build me a Today screen that logs what I eat
-   and tracks 2,000 kcal, and add a way to drag meals straight onto a day in my week. Preview it
-   first and tell me when to approve.`
-3. Approve the preview in YourWeb, then: `Apply the approved interface preview.`
-4. Drag a meal card onto a calendar cell. Reload. Everything is still there.
-5. Ask the assistant to `remove the week screen` — it is refused, because the developer marked it
-   non-removable, and the reply points at `hide_element` for the parts that may be hidden.
-
-The app registers ten static tools, and as many derived tools as your saved features justify.
-
-## Security boundary
-
-- No arbitrary HTML, CSS, JavaScript, SQL, URL, network request, module, event handler or
-  executable string is accepted, from a tool call or an imported bundle.
-- Components, expressions, actions, fields, resources, patches, interactions and operations are
-  closed discriminated unions with runtime validation and hard limits.
-- The developer base cannot be edited, removed or shadowed. Protected elements refuse the operation
-  and name the reversible alternative the policy does allow.
-- Structural changes are staged as expiring previews. The visible app must approve a preview before
-  the agent can commit it, and a stale base revision fails instead of overwriting newer work.
-- Human-authored meal-plan conflicts require a one-use, expiring confirmation token bound to the
-  exact retry.
-- Drag payloads are validated JSON. The bound action is re-read from the persisted definition on
-  drop, not carried with the pointer, and a payload that resolves to an unknown meal or a malformed
-  cell fails closed.
-- Derived tools come from validated schemas, never from generated code, and are named and bounded
-  by trusted app code.
-- The app shell, settings, reset, undo, import/export and recovery path cannot be removed by a
-  configuration. Removing a screen never removes its records; archiving a record type keeps them.
-- CSP and Cloudflare response headers restrict scripts, connections, frames, permissions and
-  referrers.
-
-## Scope and disclosure
-
-The meals, creator profiles and discussion snippets are deterministic synthetic showcase data. They
-are not real users or marketplace activity. All mutable state lives in the browser origin's
-IndexedDB; there is no account, application backend, model API or real marketplace. The product
-deliberately omits authentication, cross-device sync, publishing, payments, arbitrary app-building,
-charts and embedded chat.
-
-Dragging is an addition, not a replacement: every meal can still be planned from the recipe sheet's
-keyboard-accessible week picker, whether or not an interaction is bound.
 
 ## Screens
 
@@ -162,9 +135,6 @@ The `Dense` base puts the week, the counts and the grocery list on one screen:
 On a phone the week becomes a list of days rather than a sideways-scrolling grid:
 
 <img src="artifacts/screenshots/week-mobile.jpg" alt="The week planner on a phone" width="330">
-
-[artifacts/yourweb-proof.mp4](artifacts/yourweb-proof.mp4) is a short silent proof reel recorded
-against an earlier build, kept as a review artifact.
 
 ## License
 

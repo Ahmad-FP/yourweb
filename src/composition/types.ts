@@ -77,7 +77,7 @@ export interface SectionComponent extends ComponentBase {
 
 export interface GridComponent extends ComponentBase {
   kind: "grid";
-  columns: 1 | 2 | 3 | 4 | "auto";
+  columns: 1 | 2 | 3 | 4 | "auto" | "split";
   density?: "comfortable" | "compact";
   children: ComponentNode[];
 }
