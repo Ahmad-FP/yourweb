@@ -19,6 +19,16 @@ const mealSlots = ["breakfast", "lunch", "dinner"] as const;
 
 const json = (value: unknown) => JSON.stringify(value);
 const fail = (code: string, message: string, details?: unknown) => json({ ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } });
+
+/**
+ * The domain and composition layers report failure as `{ ok: false, code, message, ... }`.
+ * Tools speak one error envelope, so lift that detail under `error` and carry every
+ * extra field with it - the validation issues, or a confirmation token and its conflicts.
+ */
+const failFrom = (result: { ok: false } & UnknownRecord) => {
+  const { ok: _ok, ...detail } = result;
+  return json({ ok: false, error: detail });
+};
 const isRecord = (value: unknown): value is UnknownRecord => Boolean(value && typeof value === "object" && !Array.isArray(value));
 const stringValue = (value: unknown, maximum = 120) => (typeof value === "string" && value.length <= maximum ? value : undefined);
 const numberValue = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
@@ -169,7 +179,7 @@ const createTools = (store: YourWebStore): WebMCP.ModelContextTool[] => [
       if (changes.length !== input.changes.length) return fail("invalid_changes", "Every change must be an object.");
       if (input.changes.some((change) => isRecord(change) && !onlyKeys(change, ["date", "slot", "mealId", "servings"]))) return fail("invalid_changes", "A plan change contains an unknown parameter.");
       const result = await store.applyPlanChanges(changes, "agent", { expectedRevision: numberValue(input.expectedRevision), confirmationToken: stringValue(input.confirmationToken, 80) });
-      if (!result.ok) return json(result);
+      if (!result.ok) return failFrom(result);
       return json({ ok: true, revision: result.plan.revision, changed: result.changed, removed: result.removed, message: "The local week plan is updated and visible." });
     },
     { readOnlyHint: false },
@@ -253,7 +263,7 @@ const createTools = (store: YourWebStore): WebMCP.ModelContextTool[] => [
       if ("expectedRevision" in input && !isIntegerInRange(input.expectedRevision, 1, Number.MAX_SAFE_INTEGER)) return fail("invalid_input", "expectedRevision must be a positive integer.");
       const state = store.getSnapshot();
       const result = createConfigurationPreview(state.layer, input.operations, numberValue(input.expectedRevision));
-      if (!result.ok) return json(result);
+      if (!result.ok) return failFrom(result);
       await store.addActivity({ source: "agent", title: "Interface preview proposed", detail: result.preview.diff.summary, status: "pending" });
       return json({
         ok: true,
@@ -277,7 +287,7 @@ const createTools = (store: YourWebStore): WebMCP.ModelContextTool[] => [
       const previewId = stringValue(input.previewId, 80);
       if (!previewId) return fail("invalid_preview_id", "previewId is required.");
       const result = await store.applyPreview(previewId, "agent");
-      if (!result.ok) return json(result);
+      if (!result.ok) return failFrom(result);
       const configuration = store.getSnapshot().configuration;
       return json({
         ok: true,

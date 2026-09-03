@@ -62,7 +62,7 @@ describe("WebMCP tool contract", () => {
     expect(staged.ok).toBe(true);
 
     const applied = await execute(tools.find((tool) => tool.name === "apply_ui_preview")!, { previewId: staged.previewId });
-    expect(applied).toMatchObject({ ok: false, code: "preview_not_approved" });
+    expect(applied).toMatchObject({ ok: false, error: { code: "preview_not_approved" } });
     expect(store.getSnapshot().configuration.surfaces.some((surface) => surface.id === "today")).toBe(false);
   });
 
@@ -89,6 +89,28 @@ describe("WebMCP tool contract", () => {
     const staged = await execute(tools.find((tool) => tool.name === "preview_ui_changes")!, {
       operations: [{ op: "remove_surface", surfaceId: "week" }],
     });
-    expect(staged).toMatchObject({ ok: false, code: "protected_element" });
+    expect(staged).toMatchObject({ ok: false, error: { code: "protected_element" } });
+  });
+
+  it("reports every failure through one error envelope, whatever raised it", async () => {
+    const store = new YourWebStore();
+    await store.initialize();
+    const tools = createWebMCPToolsForTesting(store);
+
+    // Rejected by the tool's own argument checks.
+    const badInput = await execute(tools.find((tool) => tool.name === "get_meal")!, { mealId: "no-such-meal" });
+    // Rejected by the domain layer, which reports { ok: false, code, message }.
+    const stale = await execute(tools.find((tool) => tool.name === "update_week_plan")!, {
+      changes: [{ date: "2026-03-02", slot: "dinner", mealId: null }],
+      expectedRevision: 99,
+    });
+
+    for (const failure of [badInput, stale]) {
+      expect(failure.ok).toBe(false);
+      expect(failure.code).toBeUndefined();
+      expect(failure.error).toMatchObject({ code: expect.any(String), message: expect.any(String) });
+    }
+    expect((badInput.error as Record<string, unknown>).code).toBe("meal_not_found");
+    expect((stale.error as Record<string, unknown>).code).toBe("stale_plan");
   });
 });
