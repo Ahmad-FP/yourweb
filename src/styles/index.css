@@ -850,8 +850,19 @@ button.dense-row:hover { background: #f5ecde; }
 .boot-screen h1 { margin: 18px 0 5px; font-family: "Figtree Variable", system-ui, sans-serif; font-size: 38px; }
 .boot-screen p { color: #c9d8d1; }
 
-::view-transition-old(active-surface) { animation: 120ms ease-in both surface-out; }
-::view-transition-new(active-surface) { animation: 210ms cubic-bezier(0.2, 0.8, 0.2, 1) both surface-in; }
+/* Only the surface animates. Everything outside it - the nav, the settings
+   panel - falls under the default root transition, and that cross-fade paints
+   the old and new page over each other; switching layout showed both sets of
+   items at once for a frame. Swap the page instantly instead. */
+::view-transition-old(root) { animation: none; opacity: 0; }
+::view-transition-new(root) { animation: none; opacity: 1; }
+
+/* The outgoing surface clears before the incoming one starts, so the two never
+   composite together either. */
+::view-transition-old(active-surface) { animation: 110ms ease-in both surface-out; }
+::view-transition-new(active-surface) {
+  animation: 210ms cubic-bezier(0.2, 0.8, 0.2, 1) 110ms both surface-in;
+}
 
 @keyframes tool-pulse { 50% { box-shadow: 0 0 0 8px rgba(169, 209, 145, 0.08); } }
 @keyframes art-bob { 50% { transform: translateY(-4px) rotate(0.3deg); } }
