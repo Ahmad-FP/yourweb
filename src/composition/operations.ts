@@ -321,10 +321,34 @@ export const approveConfigurationPreview = (id: string) => {
   return true;
 };
 
+/**
+ * What an approval already committed.
+ *
+ * Approving used to only stamp the preview, leaving the change to a second
+ * call the assistant had to make -- so a user who clicked Approve and closed
+ * the conversation never got what they approved. The click applies it now, and
+ * this is what a late `apply_ui_preview` is answered from.
+ */
+const applied = new Map<string, { at: number; summary: string; revision: number }>();
+const APPLIED_KEPT = 20;
+
+export const recordAppliedPreview = (id: string, summary: string, revision: number) => {
+  applied.set(id, { at: Date.now(), summary, revision });
+  for (const key of [...applied.keys()].slice(0, Math.max(0, applied.size - APPLIED_KEPT))) applied.delete(key);
+};
+
+export const readAppliedPreview = (id: string) => applied.get(id) ?? null;
+
 export const consumeConfigurationPreview = (id: string, activeRevision: number): PreviewResult => {
   removeExpiredPreviews();
   const preview = previews.get(id);
-  if (!preview) return { ok: false, code: "preview_not_found", message: "The preview is missing or expired. Preview the changes again." };
+  if (!preview) {
+    const done = applied.get(id);
+    if (done) {
+      return { ok: false, code: "already_applied", message: `The user approved this preview and it was applied at revision ${done.revision}: ${done.summary}. Nothing further is needed. Call get_ui_outline to read the result.` };
+    }
+    return { ok: false, code: "preview_not_found", message: "The preview is missing or expired. Preview the changes again." };
+  }
   if (!preview.approvedAt) return { ok: false, code: "preview_not_approved", message: "The structural preview is waiting for the user to approve it in the YourWeb interface." };
   if (preview.baseRevision !== activeRevision) {
     previews.delete(id);

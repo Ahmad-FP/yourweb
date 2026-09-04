@@ -2,7 +2,7 @@ import { mealById, meals } from "../catalog/meals";
 import { getBase } from "../composition/base";
 import { cloneLayer, createUserLayer, resolveConfiguration } from "../composition/layer";
 import { LIMITS } from "../composition/limits";
-import { consumeConfigurationPreview } from "../composition/operations";
+import { consumeConfigurationPreview, recordAppliedPreview } from "../composition/operations";
 import type {
   ActivityEntry,
   BaseId,
@@ -251,6 +251,7 @@ export class YourWebStore {
   applyPreview(previewId: string, author: "human" | "agent" = "agent") {
     const result = consumeConfigurationPreview(previewId, this.state.layer.revision);
     if (!result.ok) return Promise.resolve(result);
+    recordAppliedPreview(previewId, result.preview.diff.summary, result.preview.layer.revision);
     return this.queueMutation((state) => {
       const nextSurface = result.preview.diff.addedSurfaces[0] ?? state.activeSurfaceId;
       return {

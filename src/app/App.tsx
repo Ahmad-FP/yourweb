@@ -65,6 +65,21 @@ export function App() {
     void transition(() => appStore.setActiveSurface(surfaceId));
   };
 
+  /**
+   * Approving is applying. The click used to only mark the preview approved,
+   * leaving the commit to a follow-up call from the assistant -- so a user who
+   * approved and walked away never got the change they had just agreed to.
+   */
+  const approveAndApply = async (previewId: string) => {
+    if (!approveConfigurationPreview(previewId)) return;
+    await transition(async () => {
+      const result = await appStore.applyPreview(previewId, "human");
+      if (!result.ok) {
+        await appStore.addActivity({ source: "human", title: "Could not apply", detail: result.message, status: "error" });
+      }
+    });
+  };
+
   const switchBase = (baseId: BaseId) => {
     if (state.layer.baseId === baseId) return;
     void transition(() => appStore.switchBase(baseId));
@@ -153,8 +168,8 @@ export function App() {
           </div>
           <div className="preview-actions">
             {preview.approvedAt
-              ? <span>Return to your assistant to apply preview <code>{preview.id.slice(0, 8)}</code></span>
-              : <button type="button" className="primary-button" onClick={() => { approveConfigurationPreview(preview.id); }}>Approve preview</button>}
+              ? <span>Applying…</span>
+              : <button type="button" className="primary-button" onClick={() => { void approveAndApply(preview.id); }}>Approve preview</button>}
             <button type="button" className="icon-button" aria-label="Dismiss preview" onClick={clearConfigurationPreviews}><X /></button>
           </div>
         </aside>

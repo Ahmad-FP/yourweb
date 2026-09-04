@@ -280,7 +280,7 @@ const createTools = (store: YourWebStore): WebMCP.ModelContextTool[] => [
   tool(
     "apply_ui_preview",
     "Apply approved UI preview",
-    "Commit one valid, unexpired preview. Fails until the user explicitly approves the visible preview in YourWeb, and if the base revision has changed. New record types and interactions in the preview immediately derive their own tools.",
+    "Commit one valid, unexpired preview. Usually you do not need this: approving the preview in YourWeb applies it there and then, and this answers already_applied if you call it afterwards. It is here for a preview the user approved through some other surface, and it fails while the preview is still unapproved or the base revision has moved. New record types and interactions derive their own tools as soon as the change lands.",
     { type: "object", additionalProperties: false, required: ["previewId"], properties: { previewId: { type: "string", maxLength: 80, description: "Id returned by preview_ui_changes." } } },
     async (input) => {
       if (!onlyKeys(input, ["previewId"])) return fail("invalid_input", "apply_ui_preview only accepts previewId.");

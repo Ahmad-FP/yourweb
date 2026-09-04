@@ -83,7 +83,7 @@ export const capabilityCatalog = {
     "Call get_ui_capabilities once to learn the grammar.",
     "Call get_ui_outline to read current ids, policy and drag/drop capability.",
     "Call preview_ui_changes with one atomic operation batch.",
-    "Ask the user to approve the visible preview.",
-    "Call apply_ui_preview with the returned previewId.",
+    "Ask the user to approve the visible preview. Approving applies it, so the change is live the moment they click.",
+    "Call get_ui_outline to read the result. apply_ui_preview is only for a preview approved somewhere other than the page, and answers already_applied otherwise.",
   ],
 } as const;
