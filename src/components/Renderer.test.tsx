@@ -112,6 +112,38 @@ describe("rendering a personalised surface", () => {
     expect(entries[0]!.mealId).toEqual(expect.any(String));
   });
 
+  it("shows only the meal fields the collection asked for", async () => {
+    // `fields` was in the schema and reported as valid, but the meal views
+    // hard-coded their columns, so no UI operation could drop a column.
+    const layer = appStore.getSnapshot().layer;
+    const preview = createConfigurationPreview(layer, [
+      {
+        op: "insert_into_slot",
+        slotId: "week-root",
+        position: 0,
+        node: {
+          id: "lean-meals",
+          kind: "collection",
+          title: "Meals",
+          query: { source: "meals", limit: 4 },
+          variant: "table",
+          fields: ["prepMinutes", "protein"],
+        },
+      },
+    ], layer.revision);
+    if (!preview.ok) throw new Error(preview.message);
+    approveConfigurationPreview(preview.preview.id);
+    await appStore.applyPreview(preview.preview.id, "agent");
+    await renderActiveSurface();
+
+    const table = container.querySelector('[data-component-id="lean-meals"] .dense-meal-table')!;
+    expect(table).toBeTruthy();
+    const heads = [...table.querySelectorAll('.dense-head [role="columnheader"]')].map((cell) => cell.textContent);
+    expect(heads).toEqual(["Meal", "Time", "Protein", "Open"]);
+    expect(table.textContent).not.toContain("kcal");
+    expect(table.getAttribute("data-columns")).toBe("2");
+  });
+
   it("ignores a drop carrying a payload from no bound interaction", async () => {
     await renderActiveSurface();
     const slot = container.querySelector('[data-component-id="week-calendar"] .plan-slot')!;

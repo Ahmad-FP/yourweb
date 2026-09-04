@@ -1,3 +1,4 @@
+import { MEAL_SUMMARY_FIELD, MEAL_VIEW_FIELDS, MEAL_VIEW_FIELDS_DEFAULT } from "./fields";
 import type { ActionId, ComponentNode, CustomCollectionSchema, ElementOwner, ElementPolicy } from "./types";
 
 /**
@@ -84,10 +85,38 @@ export const dropCapabilityFor = (
   return null;
 };
 
+/**
+ * Which fields this component is showing, and which it could be asked to show.
+ *
+ * Without this an assistant cannot tell whether `fields` does anything on a
+ * given collection, so it guesses -- and a guess that a column cannot be
+ * dropped reads as a missing feature rather than a wrong call.
+ */
+export const fieldCapabilityFor = (
+  node: ComponentNode,
+  collections: readonly CustomCollectionSchema[],
+): { shown: string[]; available: string[] } | null => {
+  if (node.kind !== "collection") return null;
+  if (node.query.source === "meals") {
+    return {
+      shown: node.fields?.length ? node.fields : [...MEAL_VIEW_FIELDS_DEFAULT],
+      available: [...MEAL_VIEW_FIELDS, MEAL_SUMMARY_FIELD],
+    };
+  }
+  const collection = activeCollection(collections, node.query.source);
+  if (collection) {
+    const available = collection.fields.map((field) => field.id);
+    return { shown: node.fields?.length ? node.fields : available, available };
+  }
+  return null;
+};
+
 export const describeCapabilities = (node: ComponentNode, collections: readonly CustomCollectionSchema[]) => {
   const drag = dragCapabilityFor(node, collections);
   const drop = dropCapabilityFor(node, collections);
+  const shows = fieldCapabilityFor(node, collections);
   return {
+    ...(shows ? { showsFields: shows } : {}),
     ...(drag ? { dragProvides: { type: drag.type, fields: drag.fields } } : {}),
     ...(drop ? { dropAccepts: { cellFields: drop.cellFields, actions: drop.actions } } : {}),
   };

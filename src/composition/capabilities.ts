@@ -1,3 +1,4 @@
+import { MEAL_SUMMARY_FIELD, MEAL_VIEW_FIELDS } from "./fields";
 import { CAPABILITY_VERSION, LIMITS } from "./limits";
 
 export const capabilityCatalog = {
@@ -14,6 +15,7 @@ export const capabilityCatalog = {
   resources: {
     meals: ["id", "name", "summary", "creator", "tags", "cuisine", "mealType", "prepMinutes", "servings", "calories", "protein", "carbs", "fat", "fiber"],
     "meal-plan": ["id", "date", "slot", "mealId", "servings", "author", "updatedAt"],
+    mealsShowable: [...MEAL_VIEW_FIELDS, MEAL_SUMMARY_FIELD],
     "grocery-list": ["key", "name", "quantity", "unit", "aisle", "mealIds"],
     custom: "A preview may upsert record types with text, number, boolean, date and mealRef fields.",
   },
@@ -23,7 +25,8 @@ export const capabilityCatalog = {
     text: "Plain bounded text; body, caption, lead or display.",
     metric: "Label plus numeric expression and optional unit.",
     progress: "Label, numeric value expression, numeric max expression.",
-    collection: "Bounded query rendered as cards, list or table. Meal and record collections can be drag sources; record collections can be drop targets.",
+    collection:
+      "Bounded query rendered as cards, list or table. `fields` picks which columns a table shows and which values a card shows, in the order given; omit it for the default set. It works on meal collections and on record collections, and get_ui_outline reports showsFields on every collection with what it is showing now and what it could show. Meal and record collections can be drag sources; record collections can be drop targets.",
     calendar: "The week grid. Every day-and-slot cell is addressable as a drop target.",
     recipe: "Trusted full recipe view for a meal id expression.",
     form: "Create records in one active record type; fields come from its schema.",

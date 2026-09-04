@@ -288,7 +288,7 @@ function ComponentRenderer({ component, state, resources, elements, onSelectMeal
       );
     case "collection": {
       if (component.query.source === "meals") {
-        return <div data-component-id={component.id}><MealMarket componentId={component.id} limit={component.query.limit} dense={component.variant === "table"} favorites={state.favorites} onSelect={onSelectMeal} /></div>;
+        return <div data-component-id={component.id}><MealMarket componentId={component.id} limit={component.query.limit} dense={component.variant === "table"} fields={component.fields} favorites={state.favorites} onSelect={onSelectMeal} /></div>;
       }
       if (component.query.source === "meal-plan") {
         return <div data-component-id={component.id}><WeekPlanner componentId={component.id} entries={state.planEntries} emptyText={component.emptyText} onSelectMeal={onSelectMeal} /></div>;

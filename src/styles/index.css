@@ -450,7 +450,8 @@ select:focus-visible,
 
 .dense-row {
   display: grid;
-  grid-template-columns: minmax(230px, 1.8fr) repeat(4, minmax(82px, 0.6fr)) 32px;
+  /* One column per field the collection asked for. */
+  grid-template-columns: minmax(230px, 1.8fr) repeat(var(--meal-columns, 4), minmax(82px, 0.6fr)) 32px;
   width: 100%;
   min-height: 62px;
   align-items: center;
@@ -464,6 +465,7 @@ select:focus-visible,
 
 button.dense-row:hover { background: #f5ecde; }
 .dense-row:last-child { border-bottom: 0; }
+.dense-meal-table[data-columns="0"] .dense-row { grid-template-columns: minmax(230px, 1.8fr) 32px; }
 .dense-row > span { font-variant-numeric: tabular-nums; }
 .dense-row > span:first-child { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 0 10px; align-items: center; }
 .dense-row > span:first-child i { width: 8px; height: 34px; grid-row: span 2; border-radius: 5px; }
@@ -968,9 +970,8 @@ button.dense-row:hover { background: #f5ecde; }
   .recipe-summary { font-size: 14.5px; }
   .food-image { aspect-ratio: 16 / 9; }
   .dense-row { grid-template-columns: minmax(170px, 1fr) 66px 28px; }
-  .dense-row > span:nth-child(3),
-  .dense-row > span:nth-child(4),
-  .dense-row > span:nth-child(5) { display: none; }
+  .dense-row > span:nth-child(n + 3):not(:last-child) { display: none; }
+  .dense-meal-table[data-columns="0"] .dense-row { grid-template-columns: minmax(170px, 1fr) 28px; }
   .manifest-grid.columns-3,
   .manifest-grid.columns-4 { --columns: 1; }
   .manifest-grid.columns-2 { --columns: 2; }

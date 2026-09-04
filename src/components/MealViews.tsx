@@ -7,6 +7,7 @@ import type { GroceryItem, MealSlot, PlanEntry } from "../domain/types";
 import { CalendarDays, Check, ChevronRight, GripVertical, Heart, Plus, Search, ShoppingBasket, X } from "./icons";
 import { useAppState } from "../app/useStore";
 import { useDragBindings } from "./dragContext";
+import { isMealViewField, MEAL_SUMMARY_FIELD, MEAL_VIEW_FIELDS_DEFAULT, type MealViewField } from "../composition/fields";
 
 const tagLabels: Record<DietaryTag, string> = {
   vegetarian: "Vegetarian",
@@ -16,6 +17,30 @@ const tagLabels: Record<DietaryTag, string> = {
   quick: "Under 30 min",
   "dairy-free": "Dairy-free",
 };
+
+/**
+ * The meal fields a collection may ask for, in the order a view falls back to.
+ *
+ * `fields` is part of the collection schema, so a composition can say which of
+ * these to show. Both meal views read this list rather than hard-coding
+ * columns, which is what makes "drop the calories" a change the site can
+ * actually carry out.
+ */
+const MEAL_FIELDS: Record<MealViewField, { label: string; text: (meal: Meal) => string }> = {
+  mealType: { label: "Type", text: (meal) => meal.mealType },
+  cuisine: { label: "Cuisine", text: (meal) => meal.cuisine },
+  prepMinutes: { label: "Time", text: (meal) => `${meal.prepMinutes} min` },
+  servings: { label: "Servings", text: (meal) => `${meal.servings}` },
+  calories: { label: "Energy", text: (meal) => `${meal.calories} kcal` },
+  protein: { label: "Protein", text: (meal) => `${meal.protein}g` },
+  carbs: { label: "Carbs", text: (meal) => `${meal.carbs}g` },
+  fat: { label: "Fat", text: (meal) => `${meal.fat}g` },
+  fiber: { label: "Fiber", text: (meal) => `${meal.fiber}g` },
+};
+
+/** `name` is always drawn and `summary` is prose, so neither is ever a column. */
+const shownFields = (fields?: string[]): MealViewField[] =>
+  (fields?.length ? fields : MEAL_VIEW_FIELDS_DEFAULT).filter(isMealViewField);
 
 const currentDate = () => {
   const now = new Date();
@@ -81,7 +106,7 @@ const MealArtwork = ({ meal }: { meal: Meal }) => {
   );
 };
 
-export function MealMarket({ componentId, limit, dense, favorites, onSelect }: { componentId: string; limit?: number; dense: boolean; favorites: string[]; onSelect: (meal: Meal) => void }) {
+export function MealMarket({ componentId, limit, dense, fields, favorites, onSelect }: { componentId: string; limit?: number; dense: boolean; fields?: string[]; favorites: string[]; onSelect: (meal: Meal) => void }) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState<DietaryTag | "all">("all");
   const { sources, beginDrag, endDrag } = useDragBindings();
@@ -90,6 +115,11 @@ export function MealMarket({ componentId, limit, dense, favorites, onSelect }: {
     () => searchMeals({ query, dietaryTags: tag === "all" ? undefined : [tag], limit: limit ?? 18 }),
     [limit, query, tag],
   );
+  const columns = shownFields(fields);
+  const META_FIELDS: readonly MealViewField[] = ["mealType", "cuisine", "prepMinutes"];
+  const meta = columns.filter((field) => META_FIELDS.includes(field));
+  const macros = columns.filter((field) => !META_FIELDS.includes(field));
+  const showSummary = !fields?.length || fields.includes(MEAL_SUMMARY_FIELD);
 
   const dragProps = (meal: Meal) =>
     draggable
@@ -121,17 +151,16 @@ export function MealMarket({ componentId, limit, dense, favorites, onSelect }: {
       </div>
 
       {results.length ? dense ? (
-        <div className="dense-meal-table" role="table" aria-label="Meal catalog">
+        <div className="dense-meal-table" role="table" aria-label="Meal catalog" data-columns={columns.length} style={{ "--meal-columns": columns.length } as CSSProperties}>
           <div className="dense-row dense-head" role="row">
-            <span role="columnheader">Meal</span><span role="columnheader">Time</span><span role="columnheader">Energy</span><span role="columnheader">Protein</span><span role="columnheader">Fiber</span><span role="columnheader"><span className="sr-only">Open</span></span>
+            <span role="columnheader">Meal</span>
+            {columns.map((field) => <span role="columnheader" key={field}>{MEAL_FIELDS[field]!.label}</span>)}
+            <span role="columnheader"><span className="sr-only">Open</span></span>
           </div>
           {results.map((meal) => (
             <button type="button" className="dense-row" role="row" key={meal.id} onClick={() => onSelect(meal)} {...dragProps(meal)}>
               <span role="cell"><i style={{ background: meal.accent }} /> <b>{meal.name}</b><small>{meal.cuisine}</small></span>
-              <span role="cell">{meal.prepMinutes} min</span>
-              <span role="cell">{meal.calories} kcal</span>
-              <span role="cell">{meal.protein}g</span>
-              <span role="cell">{meal.fiber}g</span>
+              {columns.map((field) => <span role="cell" key={field}>{MEAL_FIELDS[field]!.text(meal)}</span>)}
               <span role="cell"><ChevronRight size={17} /></span>
             </button>
           ))}
@@ -144,10 +173,14 @@ export function MealMarket({ componentId, limit, dense, favorites, onSelect }: {
               <button type="button" className="meal-card-main" onClick={() => onSelect(meal)} aria-label={`Open ${meal.name}`}>
                 <MealArtwork meal={meal} />
                 <div className="meal-card-copy">
-                  <div className="meal-card-meta"><span>{meal.mealType}</span><span>{meal.prepMinutes} min</span></div>
+                  {meta.length ? <div className="meal-card-meta">{meta.map((field) => <span key={field}>{MEAL_FIELDS[field]!.text(meal)}</span>)}</div> : null}
                   <h3>{meal.name}</h3>
-                  <p>{meal.summary}</p>
-                  <div className="macro-line"><span><b>{meal.protein}g</b> protein</span><span><b>{meal.calories}</b> kcal</span><span><b>{meal.fiber}g</b> fiber</span></div>
+                  {showSummary ? <p>{meal.summary}</p> : null}
+                  {macros.length ? (
+                    <div className="macro-line">
+                      {macros.map((field) => <span key={field}><b>{MEAL_FIELDS[field]!.text(meal)}</b> {MEAL_FIELDS[field]!.label.toLowerCase()}</span>)}
+                    </div>
+                  ) : null}
                 </div>
               </button>
               <button type="button" className={`save-meal ${favorites.includes(meal.id) ? "is-saved" : ""}`} aria-label={`${favorites.includes(meal.id) ? "Remove" : "Save"} ${meal.name}`} onClick={() => void appStore.toggleFavorite(meal.id)}>
