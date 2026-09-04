@@ -10,18 +10,31 @@ Built for the WebMCP Challenge.
 
 ## The Problem
 
-Every site ships one interface and hopes it fits everyone. Agents were supposed to fix that, but
-today an agent on a website is a very fast pair of hands: it clicks for you, and the moment the tab
-closes, nothing it did to the interface remains.
+Every site ships one interface and hopes it fits everyone. The parts you never use stay, the thing
+you do daily is three clicks deep, and the layout is a compromise between you and a million other
+people.
 
-YourWeb inverts it. The site publishes the *pieces* a screen is made of, your assistant assembles
-them once, and the result is yours — stored in your browser, working with no model in the loop,
-still there tomorrow. The site decides what is possible; your assistant decides what it is for you.
+Customising a site is not a new idea — userstyles, extensions and devtools have done it for twenty
+years. What has never existed is a way for the *site* to take part. An extension modifies a page the
+site knows nothing about: it aims at class names and DOM nodes, which are implementation details, so
+it breaks on the next redeploy, and the site can neither sanction it nor refuse it.
 
-## One Request, Measured
+YourWeb inverts that. The site publishes the *pieces* a screen is made of and declares what each one
+will tolerate. Your assistant composes inside that, once, and the result is yours — stored in your
+browser, working with no model in the loop, still there tomorrow.
 
-Starting from the shipped site and asking for a tracker, a meal list beside the week, and a way to
-drag between them:
+## What It Does
+
+Open the live site in a WebMCP-capable browser, turn on Site Tools, and say:
+
+> *Read this site's UI capabilities and outline. Then build me a Today screen that logs what I eat
+> and tracks 2,000 kcal, put a meal list next to my week that I can drag straight onto a day, and
+> hide the counts row. Preview it and tell me when to approve.*
+
+The changes are staged, not applied: `preview_ui_changes` validates the batch and renders it in the
+page, and only a human clicking **Approve** lets `apply_ui_preview` commit it. Then drag a meal onto
+a day and reload — it is still there. Ask it to delete the week screen and it can't; it will tell
+you what it can do instead.
 
 | | As it ships | After one approved request |
 |---|---|---|
@@ -47,42 +60,47 @@ flowchart LR
     T -.->|"assistant calls what it built"| B
 ```
 
-Two halves, never merged on disk. Your layer never contains a copy of the developer's screens — only
-adjustments keyed against them (*hide this, put a list here, drag from A to B*). So the site can ship
-a redesign and your version still applies on top; an adjustment whose target is gone goes inert
-rather than breaking.
+**Two halves, never merged on disk.** Your layer never contains a copy of the developer's screens —
+only adjustments keyed against them (*hide this, put a list here, drag from A to B*). So the site
+can ship a redesign and your version still applies on top; an adjustment whose target is gone goes
+inert rather than breaking. [`layer.test.ts`](src/composition/layer.test.ts) ships a fake future
+release into the resolver and asserts nothing personal is lost.
 
-Changes are staged, not applied. `preview_ui_changes` validates a batch and renders it in the page.
-Only a human clicking **Approve** lets `apply_ui_preview` commit it.
-
-## Design
-
-**Personalisation that a redesign does not destroy.** The usual approach saves a copy of the UI, and
-the copy rots the day the developer ships. Saving *adjustments* instead means the developer keeps
-editing freely. [`layer.test.ts`](src/composition/layer.test.ts) ships a fake future release into the
-resolver and asserts nothing personal is lost. → [`layer.ts`](src/composition/layer.ts)
-
-**A veto the developer expresses per element.** Every shipped element declares what it will tolerate:
-this screen is hideable and movable, this section is extendable, this calendar is neither, and
-nothing is deletable. Ask for more and you get a refusal naming what you *can* do instead.
+**A veto the developer writes per element.** Every shipped element declares what it tolerates: this
+screen is hideable and movable, this section is extendable, this calendar is neither, and nothing is
+deletable. Ask for more and you get a refusal naming what you *can* do instead.
 → [`policy.ts`](src/composition/policy.ts)
 
-**Behaviour the site never shipped.** An assistant can bind a drag source to a drop target and an
-allowed action — drag a meal card onto a calendar cell to plan it. It attaches to the developer's own
-calendar without touching it. The payload that crosses the pointer is JSON; the action is re-read
-from storage on drop. A binding whose source and target sit on different screens is rejected at
-validation: it would be structurally valid and could never once fire.
-→ [`interactions.ts`](src/composition/interactions.ts)
+**Nothing executable crosses the boundary.** Screens, expressions, actions and interactions are
+closed types with runtime validation and hard limits, and an unknown field is a rejection rather
+than a warning — so a model can build you an interface without ever running code in your page. The
+developer's structure cannot be edited, deleted or impersonated, by a tool call or by an imported
+file, and nothing leaves your browser.
 
-## Safety
+## The Tools
 
-Nothing executable crosses the boundary: screens, expressions, actions and interactions are closed
-types with runtime validation and hard limits, and an unknown field is a rejection rather than a
-warning. The developer's structure cannot be edited, deleted or impersonated — by a tool call or by
-an imported file. Structural changes need human approval in the page and expire; a stale revision
-fails rather than overwriting newer work. If the assistant tries to overwrite a meal *you* placed it
-gets *Are you sure?* and a one-use token, not a silent replacement. Everything is local, and exports
-leave your records behind unless you tick the box.
+```
+search_meals · get_meal · get_week_plan · update_week_plan · get_grocery_list
+get_ui_capabilities · get_ui_outline · preview_ui_changes · apply_ui_preview · undo_ui_change
+```
+
+Ten at page load, registered the standard way so a WebMCP-capable browser discovers them with no
+adapter:
+
+```js
+await document.modelContext.registerTool({
+  name: "preview_ui_changes",
+  title: "Preview UI changes",
+  description: "Validate a batch of UI changes and render them in the page for the user to approve.",
+  inputSchema: { type: "object", additionalProperties: false, required: ["changes"], properties: { /* ... */ } },
+  execute: (input) => ({ content: [{ type: "text", text: JSON.stringify(preview(input.changes)) }] }),
+  annotations: { readOnlyHint: false },
+});
+```
+
+More arrive as you build: a derived tool is a closure over a validated schema, never generated code,
+so a record type you created gets its own read and write tools and every write goes through the same
+store method the visible UI uses. → [`derived.ts`](src/webmcp/derived.ts)
 
 ## Stack
 
@@ -105,16 +123,5 @@ npm test
 npm run build
 npm run deploy     # Cloudflare Workers
 ```
-
-## Try The Agent Path
-
-Enable Site Tools on the live site and say:
-
-> Read this site's UI capabilities and outline. Then build me a Today screen that logs what I eat and
-> tracks 2,000 kcal, put a meal list next to my week that I can drag straight onto a day, and hide
-> the counts row. Preview it and tell me when to approve.
-
-Approve the preview in the page, tell it to apply, then drag a meal onto a day and reload. Then ask
-it to delete the week screen — it can't, and it will tell you what it can do instead.
 
 The recipes, cooks and comments are synthetic showcase data. MIT — see [LICENSE](LICENSE).
